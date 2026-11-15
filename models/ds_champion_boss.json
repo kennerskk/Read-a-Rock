@@ -1,0 +1,58 @@
+{
+  "metadata": {
+    "model_type": "MLPredictorBoss",
+    "custom_name": "🏆 DS Champion (RandomForest)",
+    "boss_desc": "โมเดล Machine Learning แชมเปียน (Efficiency: 70.2%)",
+    "champion_algorithm": "RandomForest (Ensemble Trees)",
+    "pipeline_version": "2.0.0",
+    "training_timestamp": "2026-10-21T18:45:15.625225",
+    "evaluation_metrics": {
+      "rounds": 299,
+      "ai_win_rate": 79.26421404682274,
+      "ai_loss_rate": 9.03010033444816,
+      "ai_draw_rate": 11.705685618729097,
+      "expected_reward": 0.7023411371237458,
+      "raw_r_score": 85.11705685618729,
+      "efficiency_pct": 70.23411371237458
+    },
+    "author": "Antigravity Data Science Automated Pipeline"
+  },
+  "state": {
+    "algorithm_family": "RandomForest (Ensemble Trees)",
+    "feature_names": [
+      "lag1_move",
+      "lag2_move",
+      "lag3_move",
+      "lag1_res",
+      "lag2_res",
+      "lag1_boss_move",
+      "wsls_interaction",
+      "consecutive_repeat_streak",
+      "rolling5_rock_pct",
+      "rolling5_sci_pct",
+      "rolling5_pap_pct",
+      "cycle_tendency"
+    ],
+    "feature_importances": {
+      "lag1_move": 0.29556634331508985,
+      "lag2_move": 0.09007682828191145,
+      "lag3_move": 0.025338159427896193,
+      "lag1_res": 0.07855851859779472,
+      "lag2_res": 0.009892357105480556,
+      "lag1_boss_move": 0.17708507880789956,
+      "wsls_interaction": 0.17927433121379224,
+      "consecutive_repeat_streak": 0.025618405893499504,
+      "rolling5_rock_pct": 0.04005416136110816,
+      "rolling5_sci_pct": 0.03137993860824913,
+      "rolling5_pap_pct": 0.035953760865122815,
+      "cycle_tendency": 0.011202116522155749
+    },
+    "strategy_weights": {
+      "wsls": 3.0,
+      "markov_1": 2.2,
+      "markov_2": 1.8,
+      "recency": 1.5,
+      "frequency": 1.0
+    }
+  }
+}
