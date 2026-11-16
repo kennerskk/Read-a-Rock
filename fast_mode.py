@@ -23,9 +23,10 @@ from model_io import save_boss_model, load_boss_model, list_saved_models
 
 
 class FastArena:
-    def __init__(self, pace_sec: float = 0.5, boss_idx: int = 5, sound_on: bool = True):
+    def __init__(self, pace_sec: float = 0.5, boss_idx: int = 5, sound_on: bool = True, player_name: str = "Player"):
         self.pace_sec = max(0.0, float(pace_sec))
         self.boss_idx = boss_idx
+        self.player_name = str(player_name).strip() if player_name else "Player"
         self.boss = BOSSES[self.boss_idx]()
         self.sound = SoundManager(enabled=sound_on)
 
@@ -45,7 +46,7 @@ class FastArena:
         if not os.path.exists(self.telemetry_path) or os.path.getsize(self.telemetry_path) == 0:
             with open(self.telemetry_path, "w", newline="", encoding="utf-8") as f:
                 writer = csv.writer(f)
-                writer.writerow(["timestamp", "round_id", "player_move", "ai_move", "result", "reaction_time_ms"])
+                writer.writerow(["timestamp", "round_id", "player_name", "player_move", "ai_move", "result", "reaction_time_ms"])
 
     def log_telemetry(self, player_move: str, ai_move: str, result: str):
         """บันทึกข้อมูลเพื่อนำไปใช้เทรนใน Data Science Pipeline ต่อได้ทันที"""
@@ -55,6 +56,7 @@ class FastArena:
                 writer.writerow([
                     datetime.now().isoformat(),
                     self.round_no,
+                    self.player_name,
                     player_move,
                     ai_move,
                     result,
@@ -99,7 +101,8 @@ class FastArena:
         ai_wr = (self.losses / self.round_no * 100) if self.round_no > 0 else 0.0
         custom_name = input("ตั้งชื่อโมเดล (กด Enter เพื่อใช้ชื่ออัตโนมัติ): ").strip()
         meta = {
-            "custom_name": custom_name if custom_name else f"บอสโหมดไว (Winrate {ai_wr:.0f}%)",
+            "custom_name": custom_name if custom_name else f"บอสแก้ทาง {self.player_name} (Winrate {ai_wr:.0f}%)",
+            "target_player": self.player_name,
             "stats": {
                 "total_rounds": self.round_no,
                 "player_wins": self.wins,
@@ -110,6 +113,13 @@ class FastArena:
         }
         path = save_boss_model(self.boss, metadata=meta)
         print(f"💾 บันทึกโมเดลเรียบร้อยที่: {path}")
+
+    def change_player_name(self):
+        print(f"\n👤 ผู้เล่นปัจจุบัน: {self.player_name}")
+        new_name = input("ใส่ชื่อผู้เล่นใหม่ (กด Enter เพื่อยกเลิก): ").strip()
+        if new_name:
+            self.player_name = new_name
+            print(f"✅ เปลี่ยนผู้เล่นเป็น: {self.player_name} แล้ว! ตาต่อไปจะบันทึกในชื่อนี้")
 
     def set_pace(self):
         print(f"\n⏱️ เวลาต่อตาปัจจุบัน: {self.pace_sec:.2f} วินาที")
@@ -190,18 +200,19 @@ class FastArena:
 
         print("=" * 65)
         print("⚡ FAST ARENA — โหมดประลองด่วน (No-Cam + Custom Speed)")
+        print(f"👤 ผู้เล่น: {self.player_name}")
         print(f"👾 บอสปัจจุบัน: {self.boss.name}")
         print(f"⏱️ เวลาต่อตา: {self.pace_sec:.2f} วินาที")
         print("=" * 65)
         print("ปุ่มกดเลือกท่า:")
         print("  [1] ค้อน ✊   [2] กรรไกร ✌️   [3] กระดาษ ✋")
         print("ปุ่มจัดการ:")
-        print("  [t] ปรับเวลาต่อตา    [b] สลับบอส (1-8)   [l] โหลดโมเดล")
-        print("  [s] บันทึกโมเดล      [m] เปิด/ปิดเสียง    [r] รีเซ็ตคะแนน")
-        print("  [q] สรุปผลและเลิกเล่น\n")
+        print("  [u] เปลี่ยนชื่อผู้เล่น   [t] ปรับเวลาต่อตา    [b] สลับบอส (1-8)")
+        print("  [s] บันทึกโมเดล        [l] โหลดโมเดล        [m] เปิด/ปิดเสียง")
+        print("  [r] รีเซ็ตคะแนน        [q] สรุปผลและเลิกเล่น\n")
 
         while True:
-            prompt = f"[ตา {self.round_no + 1} | {self.pace_sec:.1f}s] ออกท่า (1/2/3): "
+            prompt = f"[{self.player_name} | ตา {self.round_no + 1} | {self.pace_sec:.1f}s] ออกท่า (1/2/3): "
             try:
                 cmd = input(prompt).strip().lower()
             except (KeyboardInterrupt, EOFError):
@@ -212,6 +223,8 @@ class FastArena:
 
             if cmd == "q":
                 break
+            elif cmd in ["u", "user", "name"]:
+                self.change_player_name()
             elif cmd == "t":
                 self.set_pace()
             elif cmd == "b":
@@ -259,6 +272,7 @@ class FastArena:
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Fast Arena — โหมดประลองด่วนเป่ายิ้งฉุบ (ไม่ต้องเปิดกล้อง)")
+    parser.add_argument("--player", type=str, default=None, help="ชื่อผู้เล่น (เช่น --player Ken)")
     parser.add_argument("--pace", type=float, default=0.5, help="เวลาต่อตาเป็นวินาที (เช่น 0 = ทันที, 0.5, 1.0, 3.0)")
     parser.add_argument("--boss", type=int, default=6, help="หมายเลขบอสเริ่มต้น (1-8, ค่าเริ่มต้น 6=Ensemble)")
     parser.add_argument("--no-sound", action="store_true", help="ปิดเสียงเอฟเฟกต์")
@@ -267,6 +281,14 @@ def parse_args():
 
 if __name__ == "__main__":
     args = parse_args()
+    player_name = args.player
+    if not player_name:
+        try:
+            inp = input("👤 กรุณาระบุชื่อผู้เล่น (กด Enter เพื่อใช้ชื่อ 'Player'): ").strip()
+            player_name = inp if inp else "Player"
+        except (KeyboardInterrupt, EOFError):
+            player_name = "Player"
+
     boss_index = max(0, min(len(BOSSES) - 1, args.boss - 1))
-    arena = FastArena(pace_sec=args.pace, boss_idx=boss_index, sound_on=not args.no_sound)
+    arena = FastArena(pace_sec=args.pace, boss_idx=boss_index, sound_on=not args.no_sound, player_name=player_name)
     arena.run()

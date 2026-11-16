@@ -104,43 +104,65 @@ class HumanBehaviorSimulator:
         return mv
 
 
-def generate_or_load_telemetry(csv_path: str = "data/gameplay_telemetry.csv", rounds: int = 1500) -> pd.DataFrame:
+def generate_or_load_telemetry(csv_path: str = "data/gameplay_telemetry.csv", rounds: int = 1500, player_name: Optional[str] = None) -> pd.DataFrame:
     """
-    โหลดข้อมูล telemetry การเล่นจริง หรือสร้างชุดข้อมูลจำลองตามหลักจิตวิทยาหากยังไม่มี
+    โหลดข้อมูล telemetry การเล่นจริง หรือกรองเฉพาะผู้เล่นที่ระบุ หรือสร้างชุดข้อมูลจำลองหากข้อมูลไม่พอ
     """
     os.makedirs(os.path.dirname(csv_path) if os.path.dirname(csv_path) else ".", exist_ok=True)
 
     if os.path.exists(csv_path) and os.path.getsize(csv_path) > 100:
         df = pd.read_csv(csv_path)
-        if len(df) >= 50:
-            print(f"[Data Ingestion] โหลดข้อมูล Telemetry จริงจาก: {csv_path} ({len(df)} รายการ)")
-            return df
+        if "player_name" not in df.columns:
+            df.insert(2, "player_name", "Guest")
 
-    print(f"[Data Ingestion] สร้างชุดข้อมูลพฤติกรรมมนุษย์เชิงลึก (Synthetic Cognitive Dataset: {rounds} ตา)...")
+        # แสดงรายการผู้เล่นทั้งหมดในชุดข้อมูล
+        counts = df["player_name"].astype(str).value_counts()
+        print("\n👥 รายชื่อผู้เล่นที่พบในบันทึก Telemetry:")
+        for p, c in counts.items():
+            print(f"   • {p}: {c} ตา")
+
+        if player_name:
+            matched = df[df["player_name"].astype(str).str.strip().str.lower() == player_name.strip().lower()].copy()
+            if len(matched) >= 15:
+                print(f"🎯 กรองข้อมูลเฉพาะของผู้เล่น: '{player_name}' ({len(matched)} ตา)")
+                return matched.reset_index(drop=True)
+            elif len(matched) > 0:
+                print(f"⚠️ ข้อมูลของผู้เล่น '{player_name}' มีเพียง {len(matched)} ตา (แนะนำอย่างน้อย 15-20 ตา)")
+                print(f"   กำลังนำข้อมูลมาฝึกสอนร่วมกับข้อมูลประชากรเพื่อให้โมเดลเสถียร...")
+                return matched.reset_index(drop=True)
+            else:
+                print(f"❌ ไม่พบข้อมูลของผู้เล่นชื่อ '{player_name}' ใน {csv_path}")
+                print(f"   รายชื่อที่มีอยู่: {list(counts.keys())}")
+                print(f"   กำลังสร้างข้อมูลจำลองพฤติกรรมสำหรับ '{player_name}'...")
+        else:
+            if len(df) >= 30:
+                print(f"[Data Ingestion] ใช้ข้อมูลรวมของผู้เล่นทุกคน (Global Model: {len(df)} รายการ)")
+                return df
+
+    target_name = player_name if player_name else "Player"
+    print(f"[Data Ingestion] สร้างชุดข้อมูลพฤติกรรมจำลอง (Synthetic Cognitive Dataset: {rounds} ตา สำหรับ {target_name})...")
     sim = HumanBehaviorSimulator(profile="mixed", noise=0.18)
     records = []
     last_res = None
     ai_move = "ค้อน"
 
     for r_idx in range(1, rounds + 1):
-        player_move = sim.next_move(last_res)
-        res = judge(player_move, ai_move)
+        p_move = sim.next_move(last_res)
+        res = judge(p_move, ai_move)
         records.append({
             "timestamp": datetime.now().isoformat(),
             "round_id": r_idx,
-            "player_move": player_move,
+            "player_name": target_name,
+            "player_move": p_move,
             "ai_move": ai_move,
             "result": res,
             "reaction_time_ms": int(np.random.normal(1200, 250))
         })
         last_res = res
-        # บอสสมมติสลับท่าแก้ทาง
-        ai_move = COUNTER[player_move] if np.random.rand() < 0.4 else np.random.choice(MOVES)
+        ai_move = COUNTER[p_move] if np.random.rand() < 0.4 else np.random.choice(MOVES)
 
-    df = pd.DataFrame(records)
-    df.to_csv(csv_path, index=False, encoding="utf-8")
-    print(f"[Data Ingestion] บันทึกชุดข้อมูล Telemetry สำเร็จ: {csv_path}")
-    return df
+    df_synth = pd.DataFrame(records)
+    return df_synth
 
 
 # ==============================================================================
@@ -453,7 +475,7 @@ def benchmark_game_performance(trained_model, X_test: np.ndarray, y_test: np.nda
 # ==============================================================================
 #  6. CHAMPION SERIALIZATION & MODEL CARD PACKAGING
 # ==============================================================================
-def export_pipeline_model(champion_name: str, trained_model, metrics: Dict[str, Any], feature_names: List[str], output_path: str = "models/ds_champion_boss.json") -> str:
+def export_pipeline_model(champion_name: str, trained_model, metrics: Dict[str, Any], feature_names: List[str], output_path: str = "models/ds_champion_boss.json", target_player: Optional[str] = None) -> str:
     """
     บันทึกโมเดลแชมเปียนพร้อม Model Card ครบถ้วนตามมาตรฐาน MLOps
     """
@@ -486,9 +508,12 @@ def export_pipeline_model(champion_name: str, trained_model, metrics: Dict[str, 
         }
     }
 
+    custom_name = f"🏆 DS Champion ปราบ {target_player}" if target_player else f"🏆 DS Champion ({champion_name.split()[0]})"
+
     metadata = {
         "model_type": "MLPredictorBoss",
-        "custom_name": f"🏆 DS Champion ({champion_name.split()[0]})",
+        "custom_name": custom_name,
+        "target_player": target_player if target_player else "All Players (Global)",
         "boss_desc": f"โมเดล Machine Learning แชมเปียน (Efficiency: {metrics.get('efficiency_pct', 0):.1f}%)",
         "champion_algorithm": champion_name,
         "pipeline_version": "2.0.0",
@@ -566,14 +591,22 @@ def generate_pipeline_report(eda_report: Dict[str, Any], cv_results: Dict[str, A
 # ==============================================================================
 #  MAIN PIPELINE EXECUTION ENGINE
 # ==============================================================================
-def run_pipeline(mode: str = "full", input_csv: str = "data/gameplay_telemetry.csv", rounds: int = 1500, export_path: str = "models/ds_champion_boss.json", report_path: str = "reports/pipeline_report.md"):
+def run_pipeline(mode: str = "full", input_csv: str = "data/gameplay_telemetry.csv", rounds: int = 1500, export_path: Optional[str] = None, report_path: Optional[str] = None, player_name: Optional[str] = None):
     print("=" * 80)
     print("🚀 เริ่มกระบวนการ Data Science Model Acquisition Pipeline")
-    print(f"   โหมด: {mode.upper()}  |  เป้าหมาย: ค้นหาโมเดลแก้ทางผู้เล่นที่ดีที่สุด")
+    target_desc = f"ผู้เล่น: {player_name}" if player_name else "ผู้เล่นทุกคน (Global Population)"
+    print(f"   โหมด: {mode.upper()}  |  เป้าหมาย: ค้นหาโมเดลแก้ทาง {target_desc}")
     print("=" * 80)
 
+    # ปรับชื่อไฟล์ Output ตามชื่อผู้เล่นอัตโนมัติหากไม่ได้ระบุพาธเฉพาะ
+    clean_pname = player_name.strip().lower().replace(" ", "_") if player_name else "boss"
+    if export_path is None:
+        export_path = f"models/ds_champion_{clean_pname}.json"
+    if report_path is None:
+        report_path = f"reports/pipeline_report_{clean_pname}.md"
+
     # ขั้นที่ 1: Ingestion
-    df = generate_or_load_telemetry(input_csv, rounds=rounds)
+    df = generate_or_load_telemetry(input_csv, rounds=rounds, player_name=player_name)
 
     # ขั้นที่ 2: EDA
     eda = BehavioralEDA(df)
@@ -619,7 +652,7 @@ def run_pipeline(mode: str = "full", input_csv: str = "data/gameplay_telemetry.c
     print(f"  • ประสิทธิภาพเหนือเกณฑ์สุ่ม (Efficiency Score): +{benchmark_metrics['efficiency_pct']:.1f}%")
 
     # ขั้นที่ 6: Export & Report
-    saved_file = export_pipeline_model(champion_name, champion_model, benchmark_metrics, feature_names, export_path)
+    saved_file = export_pipeline_model(champion_name, champion_model, benchmark_metrics, feature_names, export_path, target_player=player_name)
     generate_pipeline_report(eda_results, cv_results, benchmark_metrics, champion_name, report_path)
 
     print("\n" + "=" * 80)
@@ -632,10 +665,11 @@ def run_pipeline(mode: str = "full", input_csv: str = "data/gameplay_telemetry.c
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="End-to-End Data Science Model Acquisition Pipeline")
     parser.add_argument("--mode", type=str, default="full", choices=["full", "eda", "train"], help="โหมดการทำงาน")
+    parser.add_argument("--player", type=str, default=None, help="ชื่อผู้เล่นที่ต้องการสร้างโมเดลเฉพาะบุคคล (เช่น --player Ken)")
     parser.add_argument("--input", type=str, default="data/gameplay_telemetry.csv", help="พาธไฟล์ข้อมูล Telemetry CSV")
     parser.add_argument("--rounds", type=int, default=1500, help="จำนวนรอบจำลองข้อมูลพฤติกรรม")
-    parser.add_argument("--export", type=str, default="models/ds_champion_boss.json", help="พาธเซฟโมเดลที่ได้")
-    parser.add_argument("--report", type=str, default="reports/pipeline_report.md", help="พาธเซฟรายงาน Markdown")
+    parser.add_argument("--export", type=str, default=None, help="พาธเซฟโมเดลที่ได้ (ค่าเริ่มต้น: models/ds_champion_<player>.json)")
+    parser.add_argument("--report", type=str, default=None, help="พาธเซฟรายงาน Markdown (ค่าเริ่มต้น: reports/pipeline_report_<player>.md)")
 
     args = parser.parse_args()
     run_pipeline(
@@ -643,5 +677,6 @@ if __name__ == "__main__":
         input_csv=args.input,
         rounds=args.rounds,
         export_path=args.export,
-        report_path=args.report
+        report_path=args.report,
+        player_name=args.player
     )

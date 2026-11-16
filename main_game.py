@@ -36,8 +36,9 @@ STATE_MENU = "MENU"
 
 
 class RockPaperScissorsGame:
-    def __init__(self, camera_id=0, countdown=3.0):
+    def __init__(self, camera_id=0, countdown=3.0, player_name="Player"):
         self.camera_id = camera_id
+        self.player_name = str(player_name).strip() if player_name else "Player"
         self.cap = None
 
         # โมเดล 1: ตรวจจับมือและนิ้ว
@@ -96,7 +97,7 @@ class RockPaperScissorsGame:
         if not os.path.exists(self.telemetry_path) or os.path.getsize(self.telemetry_path) == 0:
             with open(self.telemetry_path, "w", newline="", encoding="utf-8") as f:
                 writer = csv.writer(f)
-                writer.writerow(["timestamp", "round_id", "player_move", "ai_move", "result", "reaction_time_ms"])
+                writer.writerow(["timestamp", "round_id", "player_name", "player_move", "ai_move", "result", "reaction_time_ms"])
 
     def log_telemetry(self, player_move: str, ai_move: str, result: str):
         """บันทึกข้อมูลผลการเล่นแต่ละรอบลง Telemetry Dataset"""
@@ -106,10 +107,11 @@ class RockPaperScissorsGame:
                 writer.writerow([
                     datetime.now().isoformat(),
                     self.round_no,
+                    self.player_name,
                     player_move,
                     ai_move,
                     result,
-                    1200  # ค่าเฉลี่ยเวลานับถอยหลัง
+                    int(self.countdown_duration * 1000)
                 ])
         except Exception as e:
             print(f"[Telemetry Error] {e}")
@@ -124,7 +126,8 @@ class RockPaperScissorsGame:
         """ส่งออก (Export) สมองบอสที่กำลังเล่นอยู่ลงไฟล์ JSON"""
         ai_winrate = (self.losses / self.round_no * 100) if self.round_no > 0 else 0.0
         meta = {
-            "custom_name": f"บอสแก้ทางฉัน (ชนะ AI {ai_winrate:.0f}%)",
+            "custom_name": f"บอสแก้ทาง {self.player_name} (ชนะ AI {ai_winrate:.0f}%)",
+            "target_player": self.player_name,
             "stats": {
                 "total_rounds": self.round_no,
                 "player_wins": self.wins,
@@ -360,7 +363,7 @@ class RockPaperScissorsGame:
                 self.ui.draw_boss_selection_menu(frame, BOSSES, self.boss_index)
 
             # วาดข้อมูลผู้เล่นและบอส
-            self.ui.draw_player_card(frame, detected_gesture, total_fingers)
+            self.ui.draw_player_card(frame, detected_gesture, total_fingers, player_name=self.player_name)
             self.ui.draw_boss_card(frame, self.last_boss_move if self.state == STATE_RESULT else "-", getattr(self.boss, "desc", ""))
 
             # วาดแถบหัวกระดานและเมนูด้านล่าง
@@ -431,7 +434,16 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Rock-Paper-Scissors AI Arena (Webcam + MediaPipe + Adaptive AI)")
     parser.add_argument("--camera", type=int, default=0, help="Camera device index (default: 0)")
     parser.add_argument("--countdown", type=float, default=3.0, help="Countdown duration in seconds (default: 3.0, try 1.5 or 1.0 for fast mode)")
+    parser.add_argument("--player", type=str, default=None, help="Player name (e.g. --player Ken)")
     args = parser.parse_args()
 
-    game = RockPaperScissorsGame(camera_id=args.camera, countdown=args.countdown)
+    player_name = args.player
+    if not player_name:
+        try:
+            inp = input("👤 กรุณาระบุชื่อผู้เล่น (กด Enter เพื่อใช้ชื่อ 'Player'): ").strip()
+            player_name = inp if inp else "Player"
+        except (KeyboardInterrupt, EOFError):
+            player_name = "Player"
+
+    game = RockPaperScissorsGame(camera_id=args.camera, countdown=args.countdown, player_name=player_name)
     game.run()

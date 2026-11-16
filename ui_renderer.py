@@ -122,7 +122,7 @@ class UIRenderer:
         sound_color = (0, 200, 255) if sound_on else (120, 120, 120)
         self.draw_badge(img, sound_text, (w - 120, 24), bg_color=(25, 30, 38), text_color=sound_color, font_size=16)
 
-    def draw_player_card(self, img, detected_gesture, total_fingers, is_live=True):
+    def draw_player_card(self, img, detected_gesture, total_fingers, is_live=True, player_name="ผู้เล่น"):
         """การ์ดแสดงท่าที่ตรวจจับได้ของผู้เล่นแบบ Real-time"""
         h = img.shape[0]
         card_w = 310
@@ -144,7 +144,7 @@ class UIRenderer:
         icon_map = {"ค้อน": "✊", "กรรไกร": "✌️", "กระดาษ": "✋", "รอท่า...": "❓"}
         icon = icon_map.get(detected_gesture, "❓")
 
-        self.draw_thai_text(img, "👤 ผู้เล่น (ตรวจจับนิ้วมือ):", (x + 14, y + 12), font_size=15, color=(180, 190, 205))
+        self.draw_thai_text(img, f"👤 ผู้เล่น [{player_name}]:", (x + 14, y + 12), font_size=15, color=(180, 190, 205))
         self.draw_thai_text(img, f"{icon} {detected_gesture}", (x + 14, y + 36), font_size=28, color=b_color)
         self.draw_thai_text(img, f"นิ้วที่กาง: {total_fingers} นิ้ว (0=ค้อน, 2=กรรไกร, 5=กระดาษ)", (x + 14, y + 74), font_size=13, color=(160, 170, 185))
 
