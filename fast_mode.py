@@ -23,12 +23,22 @@ from model_io import save_boss_model, load_boss_model, list_saved_models
 
 
 class FastArena:
-    def __init__(self, pace_sec: float = 0.5, boss_idx: int = 5, sound_on: bool = True, player_name: str = "Player"):
+    def __init__(self, pace_sec: float = 0.5, boss_idx: int = 5, sound_on: bool = True, player_name: str = "Player", model_path: Optional[str] = None):
         self.pace_sec = max(0.0, float(pace_sec))
         self.boss_idx = boss_idx
         self.player_name = str(player_name).strip() if player_name else "Player"
-        self.boss = BOSSES[self.boss_idx]()
         self.sound = SoundManager(enabled=sound_on)
+
+        if model_path and os.path.exists(model_path):
+            try:
+                self.boss = load_boss_model(model_path)
+                b_name = getattr(self.boss, "name", os.path.basename(model_path))
+                print(f"✅ โหลดโมเดลคู่ปรับสำเร็จ: {b_name} ({model_path})")
+            except Exception as e:
+                print(f"⚠️ ไม่สามารถโหลดโมเดล {model_path} ได้: {e}")
+                self.boss = BOSSES[self.boss_idx]()
+        else:
+            self.boss = BOSSES[self.boss_idx]()
 
         self.opp_history = []
         self.round_no = 0
@@ -273,6 +283,7 @@ class FastArena:
 def parse_args():
     parser = argparse.ArgumentParser(description="Fast Arena — โหมดประลองด่วนเป่ายิ้งฉุบ (ไม่ต้องเปิดกล้อง)")
     parser.add_argument("--player", type=str, default=None, help="ชื่อผู้เล่น (เช่น --player Ken)")
+    parser.add_argument("--model", type=str, default=None, help="พาธไฟล์โมเดล JSON ที่ต้องการโหลด (เช่น models/ds_champion_ken.json)")
     parser.add_argument("--pace", type=float, default=0.5, help="เวลาต่อตาเป็นวินาที (เช่น 0 = ทันที, 0.5, 1.0, 3.0)")
     parser.add_argument("--boss", type=int, default=6, help="หมายเลขบอสเริ่มต้น (1-8, ค่าเริ่มต้น 6=Ensemble)")
     parser.add_argument("--no-sound", action="store_true", help="ปิดเสียงเอฟเฟกต์")
@@ -289,6 +300,18 @@ if __name__ == "__main__":
         except (KeyboardInterrupt, EOFError):
             player_name = "Player"
 
+    model_path = args.model
+    if not model_path and player_name:
+        clean_name = player_name.strip().lower().replace(" ", "_")
+        candidate = f"models/ds_champion_{clean_name}.json"
+        if os.path.exists(candidate):
+            try:
+                ans = input(f"🤖 ตรวจพบโมเดลแชมเปียนเฉพาะบุคคล: '{candidate}'\n   ต้องการโหลดมาเป็นคู่ต่อสู้เลยไหม? (Y/n): ").strip().lower()
+                if ans in ["", "y", "yes"]:
+                    model_path = candidate
+            except (KeyboardInterrupt, EOFError):
+                pass
+
     boss_index = max(0, min(len(BOSSES) - 1, args.boss - 1))
-    arena = FastArena(pace_sec=args.pace, boss_idx=boss_index, sound_on=not args.no_sound, player_name=player_name)
+    arena = FastArena(pace_sec=args.pace, boss_idx=boss_index, sound_on=not args.no_sound, player_name=player_name, model_path=model_path)
     arena.run()

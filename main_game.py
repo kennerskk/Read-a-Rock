@@ -36,7 +36,7 @@ STATE_MENU = "MENU"
 
 
 class RockPaperScissorsGame:
-    def __init__(self, camera_id=0, countdown=3.0, player_name="Player"):
+    def __init__(self, camera_id=0, countdown=3.0, player_name="Player", model_path=None):
         self.camera_id = camera_id
         self.player_name = str(player_name).strip() if player_name else "Player"
         self.cap = None
@@ -44,9 +44,21 @@ class RockPaperScissorsGame:
         # โมเดล 1: ตรวจจับมือและนิ้ว
         self.detector = HandDetector(max_hands=1, detection_con=0.7, track_con=0.6)
 
-        # โมเดล 2: AI บอส จาก adaptive_arena.py
+        # โมเดล 2: AI บอส จาก adaptive_arena.py (หรือโหลดจากโมเดลที่ส่งมา)
         self.boss_index = 5  # ค่าเริ่มต้น: บอส 6 (Ensemble/Meta ทายแม่นสุด)
-        self.boss = BOSSES[self.boss_index]()
+        self.initial_model_toast = None
+        if model_path and os.path.exists(model_path):
+            try:
+                loaded = load_boss_model(model_path)
+                self.boss = loaded
+                b_name = getattr(loaded, "name", os.path.basename(model_path))
+                self.initial_model_toast = f"โหลดโมเดล: {b_name[:28]}"
+                print(f"✅ โหลดโมเดลคู่ปรับสำเร็จ: {b_name} ({model_path})")
+            except Exception as e:
+                print(f"⚠️ ไม่สามารถโหลดโมเดล {model_path} ได้: {e}")
+                self.boss = BOSSES[self.boss_index]()
+        else:
+            self.boss = BOSSES[self.boss_index]()
 
         # ส่วนแสดงผล UI และระบบเสียง
         self.ui = UIRenderer()
@@ -285,6 +297,9 @@ class RockPaperScissorsGame:
         print("  [H]          : ซ่อน/แสดงจุด Landmark มือ")
         print("  [Q หรือ ESC] : ออกจากเกม\n")
 
+        if self.initial_model_toast:
+            self.show_toast(self.initial_model_toast, color=(0, 220, 255), duration=4.0)
+
         while True:
             ret, frame = self.cap.read()
             if not ret:
@@ -435,6 +450,7 @@ if __name__ == "__main__":
     parser.add_argument("--camera", type=int, default=0, help="Camera device index (default: 0)")
     parser.add_argument("--countdown", type=float, default=3.0, help="Countdown duration in seconds (default: 3.0, try 1.5 or 1.0 for fast mode)")
     parser.add_argument("--player", type=str, default=None, help="Player name (e.g. --player Ken)")
+    parser.add_argument("--model", type=str, default=None, help="Path to custom model JSON (e.g. models/ds_champion_ken.json)")
     args = parser.parse_args()
 
     player_name = args.player
@@ -445,5 +461,17 @@ if __name__ == "__main__":
         except (KeyboardInterrupt, EOFError):
             player_name = "Player"
 
-    game = RockPaperScissorsGame(camera_id=args.camera, countdown=args.countdown, player_name=player_name)
+    model_path = args.model
+    if not model_path and player_name:
+        clean_name = player_name.strip().lower().replace(" ", "_")
+        candidate = f"models/ds_champion_{clean_name}.json"
+        if os.path.exists(candidate):
+            try:
+                ans = input(f"🤖 ตรวจพบโมเดลแชมเปียนเฉพาะบุคคล: '{candidate}'\n   ต้องการโหลดมาเป็นคู่ต่อสู้เลยไหม? (Y/n): ").strip().lower()
+                if ans in ["", "y", "yes"]:
+                    model_path = candidate
+            except (KeyboardInterrupt, EOFError):
+                pass
+
+    game = RockPaperScissorsGame(camera_id=args.camera, countdown=args.countdown, player_name=player_name, model_path=model_path)
     game.run()

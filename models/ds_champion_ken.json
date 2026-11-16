@@ -1,0 +1,59 @@
+{
+  "metadata": {
+    "model_type": "MLPredictorBoss",
+    "custom_name": "🏆 DS Champion ปราบ ken",
+    "target_player": "ken",
+    "boss_desc": "โมเดล Machine Learning แชมเปียน (Efficiency: 79.2%)",
+    "champion_algorithm": "RandomForest (Ensemble Trees)",
+    "pipeline_version": "2.0.0",
+    "training_timestamp": "2026-11-16T14:54:10.576363",
+    "evaluation_metrics": {
+      "rounds": 48,
+      "ai_win_rate": 83.33333333333334,
+      "ai_loss_rate": 4.166666666666666,
+      "ai_draw_rate": 12.5,
+      "expected_reward": 0.7916666666666666,
+      "raw_r_score": 89.58333333333334,
+      "efficiency_pct": 79.16666666666669
+    },
+    "author": "Antigravity Data Science Automated Pipeline"
+  },
+  "state": {
+    "algorithm_family": "RandomForest (Ensemble Trees)",
+    "feature_names": [
+      "lag1_move",
+      "lag2_move",
+      "lag3_move",
+      "lag1_res",
+      "lag2_res",
+      "lag1_boss_move",
+      "wsls_interaction",
+      "consecutive_repeat_streak",
+      "rolling5_rock_pct",
+      "rolling5_sci_pct",
+      "rolling5_pap_pct",
+      "cycle_tendency"
+    ],
+    "feature_importances": {
+      "lag1_move": 0.14879751297276408,
+      "lag2_move": 0.10525933973317093,
+      "lag3_move": 0.09894354912730918,
+      "lag1_res": 0.05184448658988753,
+      "lag2_res": 0.06116544886678306,
+      "lag1_boss_move": 0.06192314916261887,
+      "wsls_interaction": 0.1390149278767395,
+      "consecutive_repeat_streak": 0.021628365051475192,
+      "rolling5_rock_pct": 0.07777973371807842,
+      "rolling5_sci_pct": 0.08340751809580237,
+      "rolling5_pap_pct": 0.09828590666249452,
+      "cycle_tendency": 0.05195006214287643
+    },
+    "strategy_weights": {
+      "wsls": 3.0,
+      "markov_1": 2.2,
+      "markov_2": 1.8,
+      "recency": 1.5,
+      "frequency": 1.0
+    }
+  }
+}
