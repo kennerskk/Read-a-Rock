@@ -1,19 +1,19 @@
 # 📑 รายงานผลการทดลอง Data Science Pipeline (Rock-Paper-Scissors AI)
 
-**วันที่ประมวลผล:** 2026-11-16 14:54:10  
+**วันที่ประมวลผล:** 2026-11-16 20:07:06  
 **โมเดลที่ชนะเลิศ (Champion Model):** `RandomForest (Ensemble Trees)`  
 
 ---
 
 ## 1. ผลการวิเคราะห์พฤติกรรมมนุษย์ (Behavioral Analytics & EDA)
-- **จำนวนข้อมูลตัวอย่างทั้งหมด:** 197 ตา
+- **จำนวนข้อมูลตัวอย่างทั้งหมด:** 502 ตา
 - **การทดสอบความสุ่มทางสถิติ (Chi-Square Test):**
-  - $\chi^2 = 0.254$ ($p$-value $= 8.8082e-01$)
-  - สรุป: **ผู้เล่นเล่นใกล้เคียงการสุ่ม (Random)**
-- **Shannon Entropy:** `1.584` bits (Normalized: `99.9%`)
+  - $\chi^2 = 7.223$ ($p$-value $= 2.7010e-02$)
+  - สรุป: **ผู้เล่นมีแพทเทิร์นจับทางได้ชัดเจน (Non-random)**
+- **Shannon Entropy:** `1.575` bits (Normalized: `99.4%`)
 - **จิตวิทยา Win-Stay, Lose-Shift (WSLS Empirical Rates):**
-  - **Win-Stay Rate:** `15.4%` (ทฤษฎีสุ่ม = 33.3%)
-  - **Lose-Shift Rate:** `64.2%` (ทฤษฎีสุ่ม = 33.3%)
+  - **Win-Stay Rate:** `23.5%` (ทฤษฎีสุ่ม = 33.3%)
+  - **Lose-Shift Rate:** `55.1%` (ทฤษฎีสุ่ม = 33.3%)
 
 ---
 
@@ -21,18 +21,18 @@
 
 | อัลกอริทึม (Model Candidate) | Mean Accuracy (%) | Mean Log-Loss (Cross-Entropy) |
 |:---|:---:|:---:|
-| **LogisticRegression (Softmax)** | 58.77% | 0.9937 |
-| **RandomForest (Ensemble Trees)** | 57.89% | 0.9527 |
-| **GradientBoosting (Histogram)** | 60.53% | 1.1594 |
+| **LogisticRegression (Softmax)** | 44.44% | 1.1609 |
+| **RandomForest (Ensemble Trees)** | 41.75% | 1.0748 |
+| **GradientBoosting (Histogram)** | 44.44% | 1.3772 |
 
 ---
 
 ## 3. ประสิทธิภาพเชิงทฤษฎีเกมของโมเดลแชมเปียน (Game-Theoretic Benchmark)
-- **อัตราการชนะของ AI บอส:** `83.3%`
-- **อัตราการเสมอ:** `12.5%`
-- **อัตราการแพ้ของ AI บอส:** `4.2%`
-- **Expected Value $E[R]$:** `+0.792` (ช่วงค่า [-1, +1])
-- **Efficiency Score เทียบกับ Random Baseline:** `+79.2%`
+- **อัตราการชนะของ AI บอส:** `71.0%`
+- **อัตราการเสมอ:** `12.9%`
+- **อัตราการแพ้ของ AI บอส:** `16.1%`
+- **Expected Value $E[R]$:** `+0.548` (ช่วงค่า [-1, +1])
+- **Efficiency Score เทียบกับ Random Baseline:** `+54.8%`
 
 ---
 

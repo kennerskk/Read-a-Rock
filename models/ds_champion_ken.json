@@ -3,18 +3,18 @@
     "model_type": "MLPredictorBoss",
     "custom_name": "🏆 DS Champion ปราบ ken",
     "target_player": "ken",
-    "boss_desc": "โมเดล Machine Learning แชมเปียน (Efficiency: 79.2%)",
+    "boss_desc": "โมเดล Machine Learning แชมเปียน (Efficiency: 54.8%)",
     "champion_algorithm": "RandomForest (Ensemble Trees)",
     "pipeline_version": "2.0.0",
-    "training_timestamp": "2026-11-16T14:54:10.576363",
+    "training_timestamp": "2026-11-16T20:07:05.999372",
     "evaluation_metrics": {
-      "rounds": 48,
-      "ai_win_rate": 83.33333333333334,
-      "ai_loss_rate": 4.166666666666666,
-      "ai_draw_rate": 12.5,
-      "expected_reward": 0.7916666666666666,
-      "raw_r_score": 89.58333333333334,
-      "efficiency_pct": 79.16666666666669
+      "rounds": 124,
+      "ai_win_rate": 70.96774193548387,
+      "ai_loss_rate": 16.129032258064516,
+      "ai_draw_rate": 12.903225806451612,
+      "expected_reward": 0.5483870967741935,
+      "raw_r_score": 77.41935483870968,
+      "efficiency_pct": 54.83870967741936
     },
     "author": "Antigravity Data Science Automated Pipeline"
   },
@@ -35,18 +35,18 @@
       "cycle_tendency"
     ],
     "feature_importances": {
-      "lag1_move": 0.14879751297276408,
-      "lag2_move": 0.10525933973317093,
-      "lag3_move": 0.09894354912730918,
-      "lag1_res": 0.05184448658988753,
-      "lag2_res": 0.06116544886678306,
-      "lag1_boss_move": 0.06192314916261887,
-      "wsls_interaction": 0.1390149278767395,
-      "consecutive_repeat_streak": 0.021628365051475192,
-      "rolling5_rock_pct": 0.07777973371807842,
-      "rolling5_sci_pct": 0.08340751809580237,
-      "rolling5_pap_pct": 0.09828590666249452,
-      "cycle_tendency": 0.05195006214287643
+      "lag1_move": 0.20747875752818806,
+      "lag2_move": 0.07714288434684433,
+      "lag3_move": 0.12605220433311218,
+      "lag1_res": 0.029056384534465133,
+      "lag2_res": 0.08341677662162374,
+      "lag1_boss_move": 0.047328735147245886,
+      "wsls_interaction": 0.11264404764725164,
+      "consecutive_repeat_streak": 0.03166521152090801,
+      "rolling5_rock_pct": 0.06341010249197933,
+      "rolling5_sci_pct": 0.0769060791631569,
+      "rolling5_pap_pct": 0.08916695758596666,
+      "cycle_tendency": 0.05573185907925831
     },
     "strategy_weights": {
       "wsls": 3.0,
