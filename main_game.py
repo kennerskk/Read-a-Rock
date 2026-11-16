@@ -16,6 +16,7 @@ import os
 import csv
 import time
 import sys
+import argparse
 from datetime import datetime
 import cv2
 
@@ -35,7 +36,7 @@ STATE_MENU = "MENU"
 
 
 class RockPaperScissorsGame:
-    def __init__(self, camera_id=0):
+    def __init__(self, camera_id=0, countdown=3.0):
         self.camera_id = camera_id
         self.cap = None
 
@@ -62,13 +63,12 @@ class RockPaperScissorsGame:
         self.auto_mode = False       # โหมดเล่นต่อเนื่องอัตโนมัติ
         self.draw_landmarks = True   # เปิด/ปิดการวาดเส้นโครงสร้างมือ
 
-        # ตัวจับเวลา
+        # ตัวจับเวลาและความเร็วรอบ
         self.countdown_start = 0
-        self.countdown_duration = 3.0  # นับถอยหลัง 3 วินาที
+        self.speed_presets = [3.0, 2.0, 1.5, 1.0]
+        self.countdown_duration = float(countdown)
+        self.result_duration = max(0.8, round(self.countdown_duration * 0.7, 1))
         self.last_tick_sec = -1
-
-        self.result_start = 0
-        self.result_duration = 2.8     # แสดงผล 2.8 วินาที
         self.last_player_move = "-"
         self.last_boss_move = "-"
         self.last_result = "-"
@@ -182,6 +182,18 @@ class RockPaperScissorsGame:
             self.show_toast(f"เปลี่ยนบอส: {self.boss.name[:26]}", color=(0, 220, 255))
             print(f">>> เปลี่ยนเป็นบอส: {self.boss.name}")
 
+    def cycle_speed(self):
+        """สลับความเร็วเวลานับถอยหลังต่อรอบ (3s -> 2s -> 1.5s -> 1s)"""
+        try:
+            curr_idx = self.speed_presets.index(self.countdown_duration)
+            next_idx = (curr_idx + 1) % len(self.speed_presets)
+        except ValueError:
+            next_idx = 0
+        self.countdown_duration = self.speed_presets[next_idx]
+        self.result_duration = max(0.8, round(self.countdown_duration * 0.7, 1))
+        self.show_toast(f"⏱️ ความเร็ว: นับถอยหลัง {self.countdown_duration:.1f}s (แสดงผล {self.result_duration:.1f}s)", color=(255, 200, 0))
+        print(f">>> ปรับความเร็วรอบ: นับถอยหลัง={self.countdown_duration:.1f}s | ผล={self.result_duration:.1f}s")
+
     def reset_score(self):
         self.opp_history = []
         self.round_no = 0
@@ -260,6 +272,7 @@ class RockPaperScissorsGame:
         print("ปุ่มควบคุม:")
         print("  [SPACE]      : เริ่มรอบเป่ายิ้งฉุบ")
         print("  [A]          : สลับโหมดเล่นต่อเนื่องอัตโนมัติ (AUTO)")
+        print("  [T]          : สลับความเร็วนับถอยหลังต่อตา (3s / 2s / 1.5s / 1s)")
         print("  [1 - 8]      : สลับโมเดลสมองบอส AI ทันที (8=Data Science ML Boss)")
         print("  [S]          : ส่งออก (Export) สมองบอสปัจจุบันที่เรียนรู้สไตล์เราไว้")
         print("  [L]          : นำเข้า (Import) โมเดลที่บันทึกไว้ใน models/ มาประลอง")
@@ -301,15 +314,16 @@ class RockPaperScissorsGame:
 
             if self.state == STATE_COUNTDOWN:
                 elapsed = current_time - self.countdown_start
-                remaining = self.countdown_duration - elapsed
+                duration = max(0.5, self.countdown_duration)
+                progress = elapsed / duration
 
-                if remaining > 2.0:
+                if progress < 0.33:
                     count_text = "3"
                     cur_sec = 3
-                elif remaining > 1.0:
+                elif progress < 0.66:
                     count_text = "2"
                     cur_sec = 2
-                elif remaining > 0.0:
+                elif progress < 1.0:
                     count_text = "1"
                     cur_sec = 1
                 else:
@@ -327,7 +341,8 @@ class RockPaperScissorsGame:
                 self.ui.draw_countdown(frame, count_text)
 
                 # สิ้นสุดการนับถอยหลัง -> ตัดสินผลทันที!
-                if remaining <= -0.4:
+                grace_period = max(0.25, duration * 0.15)
+                if elapsed >= duration + grace_period:
                     self.execute_showdown(detected_gesture)
 
             elif self.state == STATE_RESULT:
@@ -383,6 +398,8 @@ class RockPaperScissorsGame:
                 self.auto_mode = not self.auto_mode
                 if self.auto_mode and self.state == STATE_IDLE:
                     self.start_round()
+            elif key in [ord('t'), ord('T')]:  # T ปรับความเร็วรอบ (Pace)
+                self.cycle_speed()
             elif key in [ord('b'), ord('B')]:  # B เปิด/ปิดเมนูบอส
                 self.state = STATE_IDLE if self.state == STATE_MENU else STATE_MENU
             elif ord('1') <= key <= ord('8'):  # 1-8 เปลี่ยนบอส
@@ -411,5 +428,10 @@ class RockPaperScissorsGame:
 
 
 if __name__ == "__main__":
-    game = RockPaperScissorsGame(camera_id=0)
+    parser = argparse.ArgumentParser(description="Rock-Paper-Scissors AI Arena (Webcam + MediaPipe + Adaptive AI)")
+    parser.add_argument("--camera", type=int, default=0, help="Camera device index (default: 0)")
+    parser.add_argument("--countdown", type=float, default=3.0, help="Countdown duration in seconds (default: 3.0, try 1.5 or 1.0 for fast mode)")
+    args = parser.parse_args()
+
+    game = RockPaperScissorsGame(camera_id=args.camera, countdown=args.countdown)
     game.run()

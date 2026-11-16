@@ -249,7 +249,7 @@ class UIRenderer:
         w, h = img.shape[1], img.shape[0]
         self.draw_panel(img, 10, h - 45, w - 20, 36, bg_color=(15, 18, 24), alpha=0.9, border_color=(50, 60, 75), border_thickness=1)
 
-        help_text = "[SPACE] เริ่ม  |  [A] ออโต้  |  [1-8] บอส  |  [S] เซฟโมเดล  |  [L] โหลดโมเดล  |  [R] รีเซ็ต  |  [Q] ออก"
+        help_text = "[SPACE] เริ่ม | [A] ออโต้ | [T] สปีด | [1-8] บอส | [S] เซฟ | [L] โหลด | [R] รีเซ็ต | [Q] ออก"
         self.draw_thai_text(img, help_text, (20, h - 38), font_size=14, color=(190, 200, 215))
 
     def draw_toast_notification(self, img, text, color=(0, 255, 120)):
