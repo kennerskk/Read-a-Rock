@@ -213,6 +213,7 @@ class RockPaperScissorsGame:
         if not self.cap.isOpened():
             print(t("log.no_camera", id=self.camera_id))
             return False
+        self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))   # YUYV ที่ 720p ได้แค่ ~10 fps
         self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
         return True
@@ -367,9 +368,16 @@ class RockPaperScissorsGame:
                 fingers = g["total_open"]
 
             self.last_raw_move = raw_move
-            if frame.shape[1] < DISPLAY_MIN_WIDTH:
-                s = DISPLAY_MIN_WIDTH / frame.shape[1]
+            # วาด HUD ที่ขนาดจริงของหน้าต่าง (ขยายเต็มจอแล้วตัวหนังสือยังคม) แต่กว้างไม่ต่ำกว่า DISPLAY_MIN_WIDTH
+            try:
+                _, _, ww, wh = cv2.getWindowImageRect(window)
+            except cv2.error:
+                break                           # หน้าต่างถูกปิดไปแล้ว
+            fh, fw = frame.shape[:2]
+            s = max(DISPLAY_MIN_WIDTH / fw, min(ww / fw, wh / fh) if ww > 0 and wh > 0 else 0)
+            if abs(s - 1) > 1e-3:
                 frame = cv2.resize(frame, None, fx=s, fy=s, interpolation=cv2.INTER_LINEAR)
+            self.ui.s = frame.shape[1] / DISPLAY_MIN_WIDTH
 
             now = time.time()
             overlay_open = self.menu_open or self.help_open
@@ -426,7 +434,10 @@ class RockPaperScissorsGame:
             cv2.imshow(window, frame)
             if not self.handle_key(cv2.waitKey(1) & 0xFF):
                 break
-            if cv2.getWindowProperty(window, cv2.WND_PROP_VISIBLE) < 1:
+            try:
+                if cv2.getWindowProperty(window, cv2.WND_PROP_VISIBLE) < 1:
+                    break
+            except cv2.error:                   # Qt ทำลายหน้าต่างไปแล้วเมื่อกด X
                 break
 
         self.detector.close()

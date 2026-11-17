@@ -48,20 +48,31 @@ def short_boss_name(name: str) -> str:
 
 class UIRenderer:
     def __init__(self):
-        regular = ["C:/Windows/Fonts/LeelawUI.ttf", "C:/Windows/Fonts/leelawad.ttf",
+        fonts = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "fonts")
+        regular = [os.path.join(fonts, "Prompt-Regular.ttf"), "C:/Windows/Fonts/LeelawUI.ttf", "C:/Windows/Fonts/leelawad.ttf",
                    "C:/Windows/Fonts/tahoma.ttf",
                    "/System/Library/Fonts/Supplemental/Thonburi.ttc",
                    "/usr/share/fonts/truetype/thai/Garuda.ttf",
                    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"]
-        bold = ["C:/Windows/Fonts/LeelaUIb.ttf", "C:/Windows/Fonts/leelawdb.ttf",
+        bold = [os.path.join(fonts, "Prompt-Bold.ttf"), "C:/Windows/Fonts/LeelaUIb.ttf", "C:/Windows/Fonts/leelawdb.ttf",
                 "C:/Windows/Fonts/tahomabd.ttf",
                 "/usr/share/fonts/truetype/thai/Garuda-Bold.ttf"]
         self.font_path = next((f for f in regular if os.path.exists(f)), None)
         self.bold_path = next((f for f in bold if os.path.exists(f)), self.font_path)
         emoji = ["C:/Windows/Fonts/seguiemj.ttf", "/System/Library/Fonts/Apple Color Emoji.ttc",
-                 "/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf"]
+                 "/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf", "/usr/share/fonts/noto/NotoColorEmoji.ttf"]
         self.emoji_path = next((f for f in emoji if os.path.exists(f)), None)
         self._font_cache = {}
+        self.s = 1.0        # พิกเซลจริงต่อ 1 หน่วยเลย์เอาต์ (เลย์เอาต์ทั้งหมดออกแบบที่กว้าง 1280)
+
+    def dims(self, img):
+        """ขนาดภาพในหน่วยเลย์เอาต์ (h, w)"""
+        return int(img.shape[0] / self.s), int(img.shape[1] / self.s)
+
+    def p(self, *v):
+        """แปลงพิกัด/รัศมี/ความหนาจากหน่วยเลย์เอาต์เป็นพิกเซลจริง"""
+        r = tuple(round(x * self.s) for x in v)
+        return r if len(r) > 1 else r[0]
 
     # ------------------------------------------------------------------
     #  พื้นฐาน
@@ -71,14 +82,14 @@ class UIRenderer:
         if key not in self._font_cache:
             path = self.bold_path if bold else self.font_path
             try:
-                self._font_cache[key] = ImageFont.truetype(path, size) if path else ImageFont.load_default()
+                self._font_cache[key] = ImageFont.truetype(path, size) if path else ImageFont.load_default(size)
             except Exception:
-                self._font_cache[key] = ImageFont.load_default()
+                self._font_cache[key] = ImageFont.load_default(size)
         return self._font_cache[key]
 
     def text_width(self, text, size, bold=False):
-        l, _, r, _ = self.get_font(size, bold).getbbox(text, anchor="la")
-        return r - l
+        l, _, r, _ = self.get_font(round(size * self.s), bold).getbbox(text, anchor="la")
+        return (r - l) / self.s
 
     def fit(self, text, size, max_w, bold=False):
         """ตัดข้อความให้พอดีความกว้าง max_w พิกเซล (เติม ...)"""
@@ -93,10 +104,10 @@ class UIRenderer:
         align: 'l' ซ้าย, 'c' กึ่งกลางที่ x, 'r' ชิดขวาที่ x  คืนค่าความกว้างข้อความ"""
         if not text:
             return 0
-        font = self.get_font(size, bold)
+        font = self.get_font(round(size * self.s), bold)
         l, t, r, b = font.getbbox(text, anchor="la")
         w = r - l
-        x, y = int(pos[0]), int(pos[1])
+        x, y = round(pos[0] * self.s), round(pos[1] * self.s)
         if align == "c":
             x -= w // 2
         elif align == "r":
@@ -106,7 +117,7 @@ class UIRenderer:
         x0, y0 = max(0, x + l - pad), max(0, y + t - pad)
         x1, y1 = min(iw, x + r + pad + 2), min(ih, y + b + pad + 2)
         if x1 <= x0 or y1 <= y0:
-            return w
+            return w / self.s
         roi = img[y0:y1, x0:x1]
         pil = Image.fromarray(cv2.cvtColor(roi, cv2.COLOR_BGR2RGB))
         d = ImageDraw.Draw(pil)
@@ -115,7 +126,7 @@ class UIRenderer:
             d.text((ox + 1, oy + 1), text, font=font, fill=(0, 0, 0), anchor="la")
         d.text((ox, oy), text, font=font, fill=(color[2], color[1], color[0]), anchor="la")
         img[y0:y1, x0:x1] = cv2.cvtColor(np.asarray(pil), cv2.COLOR_RGB2BGR)
-        return w
+        return w / self.s
 
     # ชื่อเดิม (เผื่อสคริปต์อื่นเรียกใช้)
     def draw_thai_text(self, img, text, pos, font_size=22, color=WHITE, shadow=True, shadow_color=(0, 0, 0)):
@@ -123,6 +134,8 @@ class UIRenderer:
         return img
 
     def panel(self, img, x, y, w, h, bg=PANEL, alpha=0.82, border=PANEL_LINE, thickness=1):
+        x, y, w, h = x * self.s, y * self.s, w * self.s, h * self.s
+        thickness = self.p(thickness) if thickness > 0 else 0
         ih, iw = img.shape[:2]
         x1, y1 = max(0, int(x)), max(0, int(y))
         x2, y2 = min(iw, int(x + w)), min(ih, int(y + h))
@@ -161,9 +174,9 @@ class UIRenderer:
     # ------------------------------------------------------------------
     def draw_top_bar(self, img, round_no, wins, losses, draws, boss_name, auto_mode,
                      sound_on, countdown_sec, recent_results):
-        w = img.shape[1]
+        _, w = self.dims(img)
         self.panel(img, 0, 0, w, 66, alpha=0.86, border=None)
-        cv2.line(img, (0, 66), (w, 66), PANEL_LINE, 1)
+        cv2.line(img, self.p(0, 66), self.p(w, 66), PANEL_LINE, self.p(1))
 
         # ซ้าย: ตาที่ + คะแนน
         self.text(img, t("top.round", n=round_no), (20, 8), size=15, color=MUTED)
@@ -197,14 +210,14 @@ class UIRenderer:
             x += self.text(img, t("top.recent"), (x, 74), size=14, color=INK2) + 8
             for r in recent_results[-12:]:
                 col = {"win": GREEN, "lose": RED, "draw": AMBER}.get(r, MUTED)
-                cv2.rectangle(img, (x, 79), (x + 13, 92), col, -1, cv2.LINE_AA)
+                cv2.rectangle(img, self.p(x, 79), self.p(x + 13, 92), col, -1, cv2.LINE_AA)
                 x += 18
 
     # ------------------------------------------------------------------
     #  การ์ดผู้เล่น / บอส (ล่างซ้าย / ล่างขวา)
     # ------------------------------------------------------------------
     def draw_player_card(self, img, gesture, fingers, hand_visible, player_name="ผู้เล่น", locked=False):
-        h = img.shape[0]
+        h, _ = self.dims(img)
         cw, ch = 330, 128
         x, y = 20, h - ch - 62
         col = MOVE_COLOR.get(gesture, MUTED)
@@ -214,7 +227,7 @@ class UIRenderer:
 
         # ไฟสถานะกล้องเห็นมือ
         dot = GREEN if hand_visible else RED
-        cv2.circle(img, (x + cw - 22, y + 20), 6, dot, -1, cv2.LINE_AA)
+        cv2.circle(img, self.p(x + cw - 22, y + 20), self.p(6), dot, -1, cv2.LINE_AA)
         self.text(img, t("card.hand") if hand_visible else t("card.no_hand"), (x + cw - 34, y + 10), size=13,
                   color=dot, align="r")
 
@@ -230,7 +243,7 @@ class UIRenderer:
         for i in range(5):
             cxp = x + 96 + i * 22
             on = hand_visible and i < fingers
-            cv2.circle(img, (cxp, y + 107), 7, col if on else (70, 74, 82), -1 if on else 1, cv2.LINE_AA)
+            cv2.circle(img, self.p(cxp, y + 107), self.p(7), col if on else (70, 74, 82), -1 if on else self.p(1), cv2.LINE_AA)
 
     # ------------------------------------------------------------------
     #  Emoji มือของบอส (Segoe UI Emoji สี) — วาดครั้งเดียวแล้วเก็บเป็น sprite
@@ -242,14 +255,21 @@ class UIRenderer:
         sprite = None
         if self.emoji_path:
             try:
-                font = ImageFont.truetype(self.emoji_path, size)
+                try:
+                    fs = size
+                    font = ImageFont.truetype(self.emoji_path, fs)
+                except OSError:
+                    fs = 109        # Noto Color Emoji (Linux) เป็นบิตแมปที่โหลดได้แค่ 109px แล้วค่อยย่อ
+                    font = ImageFont.truetype(self.emoji_path, fs)
                 ch = EMOJI.get(move, EMOJI["ค้อน"])
-                canvas = Image.new("RGBA", (size * 2, size * 2), (0, 0, 0, 0))
-                ImageDraw.Draw(canvas).text((size // 4, size // 4), ch, font=font, embedded_color=True)
+                canvas = Image.new("RGBA", (fs * 2, fs * 2), (0, 0, 0, 0))
+                ImageDraw.Draw(canvas).text((fs // 4, fs // 4), ch, font=font, embedded_color=True)
                 bbox = canvas.getbbox()
                 if bbox:
                     rgba = np.asarray(canvas.crop(bbox))
                     sprite = cv2.cvtColor(rgba, cv2.COLOR_RGBA2BGRA)
+                    if fs != size:
+                        sprite = cv2.resize(sprite, None, fx=size / fs, fy=size / fs, interpolation=cv2.INTER_AREA)
             except Exception:
                 sprite = None
         self._font_cache[key] = sprite
@@ -257,6 +277,7 @@ class UIRenderer:
 
     def blit_emoji(self, img, move, cx, cy, size=110, scale=1.0, alpha=1.0):
         """วาด emoji ท่ามือ ให้จุดกึ่งกลางอยู่ที่ (cx, cy) คืนค่า False ถ้าไม่มีฟอนต์ emoji"""
+        cx, cy, size = cx * self.s, cy * self.s, round(size * self.s)
         sprite = self._emoji_sprite(move, size)
         if sprite is None:
             return False
@@ -281,7 +302,7 @@ class UIRenderer:
               'pump'   = กำลังนับถอยหลัง (กำมือเขย่าขึ้นลงตามจังหวะ 3-2-1)  anim_t = progress 0..1
               'reveal' = ออกท่าแล้ว (ขยายเด้งขึ้นมา)  anim_t = วินาทีตั้งแต่ออกท่า
         """
-        w, h = img.shape[1], img.shape[0]
+        h, w = self.dims(img)
         cw, ch = 330, 190
         x, y = w - cw - 20, h - ch - 62
         reveal = mode == "reveal" and boss_move in MOVE_COLOR
@@ -319,7 +340,7 @@ class UIRenderer:
     #  ข้อความกลางจอตามสถานะ
     # ------------------------------------------------------------------
     def _center_box(self, img, w, h, border, dy=0):
-        ih, iw = img.shape[:2]
+        ih, iw = self.dims(img)
         x, y = (iw - w) // 2, (ih - h) // 2 - 30 + dy
         self.panel(img, x, y, w, h, alpha=0.88, border=border, thickness=2)
         return x, y
@@ -348,19 +369,19 @@ class UIRenderer:
         if prog > 0:
             bw = 420
             bx = cx - bw // 2
-            cv2.rectangle(img, (bx, y + 122), (bx + bw, y + 127), (60, 64, 74), -1)
-            cv2.rectangle(img, (bx, y + 122), (bx + int(bw * min(1.0, prog)), y + 127), col, -1)
+            cv2.rectangle(img, self.p(bx, y + 122), self.p(bx + bw, y + 127), (60, 64, 74), -1)
+            cv2.rectangle(img, self.p(bx, y + 122), self.p(bx + int(bw * min(1.0, prog)), y + 127), col, -1)
 
     def draw_countdown(self, img, number, progress, locked_move=None, reaction_ms=None):
         """ตัวเลขนับถอยหลังพร้อมวงแหวนความคืบหน้า"""
-        ih, iw = img.shape[:2]
+        ih, iw = self.dims(img)
         cx, cy = iw // 2, ih // 2 - 40
         r = 86
         overlay = img.copy()
-        cv2.circle(overlay, (cx, cy), r + 16, PANEL, -1, cv2.LINE_AA)
+        cv2.circle(overlay, self.p(cx, cy), self.p(r + 16), PANEL, -1, cv2.LINE_AA)
         cv2.addWeighted(overlay, 0.85, img, 0.15, 0, dst=img)
-        cv2.circle(img, (cx, cy), r, (60, 64, 74), 6, cv2.LINE_AA)
-        cv2.ellipse(img, (cx, cy), (r, r), -90, 0, int(360 * min(1.0, progress)), ACCENT, 6, cv2.LINE_AA)
+        cv2.circle(img, self.p(cx, cy), self.p(r), (60, 64, 74), self.p(6), cv2.LINE_AA)
+        cv2.ellipse(img, self.p(cx, cy), self.p(r, r), -90, 0, int(360 * min(1.0, progress)), ACCENT, self.p(6), cv2.LINE_AA)
         if number == 0:
             self.text(img, t("cd.go"), (cx, cy - 34), size=52, bold=True, color=GREEN, align="c")
         else:
@@ -402,16 +423,16 @@ class UIRenderer:
     #  แถบปุ่มด้านล่าง + คู่มือ + เมนูบอส + toast
     # ------------------------------------------------------------------
     def draw_footer_controls(self, img):
-        w, h = img.shape[1], img.shape[0]
+        h, w = self.dims(img)
         self.panel(img, 0, h - 46, w, 46, alpha=0.86, border=None)
-        cv2.line(img, (0, h - 46), (w, h - 46), PANEL_LINE, 1)
+        cv2.line(img, self.p(0, h - 46), self.p(w, h - 46), PANEL_LINE, self.p(1))
         x = 20
         for k, label in (("SPACE", "key.play"), ("A", "key.auto"), ("T", "key.speed"), ("B", "key.bots"),
                          ("4", "Lite Ensemble"), ("N", "key.new"), ("E", "key.lang"), ("H", "key.all"), ("Q", "key.quit")):
             x = self.keycap(img, k, t(label), x, h - 36)
 
     def draw_help_overlay(self, img):
-        ih, iw = img.shape[:2]
+        ih, iw = self.dims(img)
         mw, mh = 640, 547
         mx, my = (iw - mw) // 2, (ih - mh) // 2
         self.panel(img, mx, my, mw, mh, alpha=0.95, border=ACCENT, thickness=2)
@@ -428,7 +449,7 @@ class UIRenderer:
         self.text(img, t("help.close"), (mx + mw // 2, my + mh - 34), size=14, color=MUTED, align="c")
 
     def draw_boss_selection_menu(self, img, bosses, current_idx):
-        ih, iw = img.shape[:2]
+        ih, iw = self.dims(img)
         mw, mh = 700, 112 + 46 * len(bosses)
         mx, my = (iw - mw) // 2, max(70, (ih - mh) // 2)
         self.panel(img, mx, my, mw, mh, alpha=0.95, border=ACCENT, thickness=2)
@@ -448,7 +469,7 @@ class UIRenderer:
             y += 46
 
     def draw_toast_notification(self, img, text, color=GREEN):
-        ih, iw = img.shape[:2]
+        ih, iw = self.dims(img)
         text = self.fit(text, 17, 540)
         tw = self.text_width(text, 17) + 40
         bx, by = (iw - tw) // 2, ih - 46 - 58
