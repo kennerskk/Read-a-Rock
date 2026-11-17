@@ -348,7 +348,7 @@ def run_ml(csv_path: str, n_folds: int = 10, seeds=(42, 7, 2026), verbose: bool 
     if not os.path.exists(csv_path):
         return None
 
-    df = pd.read_csv(csv_path)
+    df = read_telemetry(csv_path)
     X, y, feat_names = FeatureStore.build_features(df)
     X = np.asarray(X)
     y = np.asarray(y)
@@ -808,7 +808,7 @@ def main():
     ap.add_argument("--rounds", type=int, default=1000, help="จำนวนตาต่อแมตช์ (default 1000)")
     ap.add_argument("--seed0", type=int, default=0, help="seed เริ่มต้น (default 0)")
     ap.add_argument("--folds", type=int, default=10, help="จำนวน fold ของ walk-forward (default 10)")
-    ap.add_argument("--csv", type=str, default="data/gameplay_telemetry.csv")
+    ap.add_argument("--csv", type=str, default="data/players")
     ap.add_argument("--out", type=str, default="reports/statistical_report.md")
     ap.add_argument("--skip-ml", action="store_true", help="ข้ามการเทียบโมเดล sklearn")
     args = ap.parse_args()

@@ -8,7 +8,7 @@
 #
 #  คู่ต่อสู้ (7 แบบ):
 #    - Persona จำลอง: เอียงค้อน / วนลูป / WSLS / เปลี่ยนสไตล์ทุก 75 ตา / สุ่ม Nash
-#    - คนจริง: replay ลำดับท่าจาก data/gameplay_telemetry.csv (ผู้เล่นที่มี >=100 ตา
+#    - คนจริง: replay ลำดับท่าจาก data/players/*.csv (ผู้เล่นที่มี >=100 ตา
 #      ไม่นับ Guest เพราะเป็นข้อมูลจำลอง)
 #
 #  ตัวชี้วัดหลัก: Net Score = (บอสชนะ - บอสแพ้) / จำนวนตา x 100
@@ -30,6 +30,7 @@ from multiprocessing import Pool
 
 import numpy as np
 import pandas as pd
+from telemetry import read_telemetry
 from scipy import stats
 
 if sys.stdout and hasattr(sys.stdout, "reconfigure"):
@@ -81,9 +82,9 @@ class ReplayPlayer:
 
 
 def load_human_sequences(csv_path, min_rounds=100):
-    if not os.path.exists(csv_path):
+    df = read_telemetry(csv_path)
+    if df.empty:
         return {}
-    df = pd.read_csv(csv_path)
     df = df[df["player_move"].isin(MOVES)]
     df["pkey"] = df["player_name"].astype(str).str.strip().str.lower()
     df = df[df["pkey"] != "guest"]                       # Guest = ข้อมูลจำลอง
@@ -384,7 +385,7 @@ def make_figures(rows, outdir, top_n=5):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--csv", default="data/gameplay_telemetry.csv")
+    ap.add_argument("--csv", default="data/players")
     ap.add_argument("--reps", type=int, default=20)
     ap.add_argument("--rounds", type=int, default=300, help="จำนวนตาต่อแมตช์ของ persona จำลอง")
     ap.add_argument("--out", default="reports/ensemble_combos.md")

@@ -451,7 +451,7 @@ EXPERT_POOL = {
 }
 
 # แชมป์แต่ละขนาดจาก benchmark_ensemble_combos.py (ดู reports/ensemble_combos.md)
-# 50 reps x 7 คู่ต่อสู้ — Net Score: 2 ตัว 47.7 | 3 ตัว 48.0 | 4 ตัว 47.7 | Ensemble เดิม 41.2
+# 50 reps x 8 คู่ต่อสู้ (คนจริง ken, nine, three) — Net Score: 2 ตัว 42.6 | 3 ตัว 42.8 | 4 ตัว 42.4 | Ensemble เดิม 36.7
 BEST_COMBOS = {
     2: ("ngram", "ml"),
     3: ("ngram", "qlearn", "ml"),
@@ -461,7 +461,7 @@ BEST_COMBO = BEST_COMBOS[2]     # ค่าเริ่มต้นของบ�
 
 
 # ---------- Population Prior: นิสัยรวมของผู้เล่น "ทุกคน" (ใช้แก้ปัญหาเริ่มเกมแล้วยังไม่รู้จักคนตรงหน้า) ----------
-DEFAULT_TELEMETRY = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "gameplay_telemetry.csv")
+DEFAULT_TELEMETRY = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "players")
 SYNTHETIC_PLAYERS = {"guest"}     # ข้อมูลจำลองจาก simulator ไม่ใช่คนจริง ไม่นำมาเทรน
 
 
@@ -484,9 +484,8 @@ def build_population_table(source=None, exclude_players=(), session_gap_min: flo
         source = DEFAULT_TELEMETRY
     empty = {"first": {}, "marg": {}, "m1": {}, "m1r": {}, "players": [], "rounds": 0}
     if isinstance(source, str):
-        if not os.path.exists(source):
-            return empty
-        df = pd.read_csv(source)
+        from telemetry import read_telemetry
+        df = read_telemetry(source)
     else:
         df = source.copy()
     if df.empty or "player_move" not in df:
@@ -570,7 +569,7 @@ ALL_EXPERTS = {**EXPERT_POOL, **EXTRA_EXPERTS}
 
 # Lite Ensemble แบบ warm start: รู้จักคนทั่วไปตั้งแต่ตาแรก แล้วค่อยเปลี่ยนไปเชื่อโมเดลที่เรียนจากคนตรงหน้า
 # ผลทดสอบ leave-one-player-out (reports/warm_start.md, ผู้เล่นจริง 2 คน): ยังไม่ต่างจาก Cold อย่างมีนัยสำคัญ
-# จึงเป็นแค่ตัวเลือกเสริมของบอส 9 (กด 9 วนถึง "warm") ค่าเริ่มต้นยังเป็น BEST_COMBO
+# จึงเป็นแค่ตัวเลือกเสริมของ Lite Ensemble (กดปุ่มบอสซ้ำวนถึง "warm") ค่าเริ่มต้นยังเป็น BEST_COMBO
 WARM_COMBO = ("prior", "ngram", "ml")
 WARM_DECAY = 0.9
 
@@ -584,8 +583,8 @@ class ComboEnsembleBoss(Boss):
     - Q-learning เรียนจากรางวัลของ "ท่าที่ตัวเองเสนอ" (counterfactual)
       ส่วนตัวอื่นเรียนจากผลจริง เพื่อให้ฟีเจอร์ WSLS ของ ML ถูกต้อง
     """
-    name = "9. Lite Ensemble (ชุด 2-4 โมเดลที่ทดสอบแล้วโหดสุด)"
-    desc = "ใช้แค่ 2-4 โมเดลที่ดีที่สุดจาก benchmark ประหยัดกว่า Ensemble เต็ม (กด 9 ซ้ำเพื่อสลับขนาด)"
+    name = "Lite Ensemble (ชุด 2-4 โมเดลที่ทดสอบแล้วโหดสุด)"
+    desc = "N-gram + ML: ชุดที่ชนะ benchmark ทุกชุดค่าผสม (กดซ้ำเพื่อสลับ 2 / 3 / 4 โมเดล / Warm start)"
 
     def __init__(self, members=None, decay: float = 1.0, factories: Optional[Dict[str, Any]] = None):
         """
@@ -606,7 +605,7 @@ class ComboEnsembleBoss(Boss):
         self.proposals: Dict[str, str] = {}
         self.picks = Counter()          # นับว่าแต่ละตาเชื่อสมาชิกตัวไหน (ใช้อธิบายผลใน benchmark)
         label = " + ".join(ALL_EXPERTS[m][0] for m in members)
-        self.name = f"9. Lite Ensemble ({label})"
+        self.name = f"Lite Ensemble ({label})"
         warm = " เริ่มด้วยนิสัยคนทั่วไป แล้วปรับเข้าหาคุณ" if "prior" in members else ""
         self.desc = f"ใช้แค่ {len(members)} โมเดล ({label}){warm}"
 
@@ -707,7 +706,12 @@ BOSSES = [
 
 # รายการบอสในเกม (เพิ่มบอส 9 = Lite Ensemble ชุดที่ดีที่สุดจาก benchmark)
 # แยกจาก BOSSES เพื่อให้สคริปต์วิเคราะห์เดิม (statistical_test ฯลฯ) ได้ผลเหมือนเดิม
-GAME_BOSSES = BOSSES + [ComboEnsembleBoss]
+# เหลือเฉพาะบอสที่เก่งจริงจาก benchmark (reports/ensemble_combos.md, Net Score กับคู่ต่อสู้ที่จับทางได้):
+#   Markov 37.7 | N-gram 40.7 | ML 39.6 | Lite Ensemble (N-gram + ML) 42.6
+# ตัดออกจากเมนูเกม: Random (~0), Frequency -0.5, Decay -10.0, Q-learning 20.7, Ensemble เดิม 36.7
+# (คลาสยังอยู่ใน BOSSES ให้สคริปต์วิเคราะห์ / โหลดโมเดลเก่าที่เซฟไว้ใช้ได้เหมือนเดิม)
+GAME_BOSSES = [MarkovBoss, NgramBoss, MLPredictorBoss, ComboEnsembleBoss]
+DEFAULT_GAME_BOSS = GAME_BOSSES.index(ComboEnsembleBoss)
 
 
 # =====================================================

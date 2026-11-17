@@ -51,6 +51,7 @@ if sys.stdout is not None and hasattr(sys.stdout, "reconfigure"):
 
 import numpy as np
 import pandas as pd
+from telemetry import read_telemetry
 from scipy import stats
 
 from adaptive_arena import BOSSES, MOVES, BEATS, COUNTER, judge
@@ -686,7 +687,7 @@ def write_report(names, merged, acc_m, r_m, fr, pairs, sign, famc, figs, meta, o
 
 def main():
     ap = argparse.ArgumentParser(description="เทียบ Lightweight vs Heavyweight บนสนามทดสอบกลาง")
-    ap.add_argument("--csv", default="data/gameplay_telemetry.csv")
+    ap.add_argument("--csv", default="data/players")
     ap.add_argument("--warmup", type=float, default=0.40)
     ap.add_argument("--refit", type=int, default=25)
     ap.add_argument("--segment", type=int, default=50)
@@ -699,7 +700,7 @@ def main():
     print("  สนามทดสอบกลาง: Prequential Evaluation (Test-Then-Train)")
     print("=" * 90)
 
-    df = pd.read_csv(args.csv)
+    df = read_telemetry(args.csv)
     if "player_name" not in df.columns:
         df["player_name"] = "Guest"
 

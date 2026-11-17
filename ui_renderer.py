@@ -406,12 +406,12 @@ class UIRenderer:
         cv2.line(img, (0, h - 46), (w, h - 46), PANEL_LINE, 1)
         x = 20
         for k, label in (("SPACE", "เล่น"), ("A", "ออโต้"), ("T", "ความเร็ว"), ("B", "เลือกบอส"),
-                         ("9", "Lite Ensemble"), ("H", "ปุ่มทั้งหมด"), ("Q", "ออก")):
+                         ("4", "Lite Ensemble"), ("N", "คนใหม่"), ("H", "ปุ่มทั้งหมด"), ("Q", "ออก")):
             x = self.keycap(img, k, label, x, h - 36)
 
     def draw_help_overlay(self, img):
         ih, iw = img.shape[:2]
-        mw, mh = 640, 470
+        mw, mh = 640, 510
         mx, my = (iw - mw) // 2, (ih - mh) // 2
         self.panel(img, mx, my, mw, mh, alpha=0.95, border=ACCENT, thickness=2)
         self.text(img, "ปุ่มทั้งหมด", (mx + 28, my + 18), size=26, bold=True, color=ACCENT)
@@ -419,9 +419,10 @@ class UIRenderer:
             ("SPACE", "เริ่มตาใหม่ (แล้วทำท่าให้กล้องเห็น)"),
             ("A", "โหมดออโต้: เริ่มตาใหม่เองเมื่อเห็นท่า"),
             ("T", "ความเร็วนับถอยหลัง 3 / 2 / 1.5 / 1 วิ"),
-            ("B", "เปิดรายชื่อบอส  ·  1-8 เปลี่ยนบอส"),
-            ("9", "Lite Ensemble (กดซ้ำ: 2 / 3 / 4 โมเดล / Warm start)"),
+            ("B", "เปิดรายชื่อบอส  ·  1-4 เปลี่ยนบอส"),
+            ("4", "Lite Ensemble (กดซ้ำ: 2 / 3 / 4 โมเดล / Warm start)"),
             ("S / L", "บันทึก / โหลดสมองบอส"),
+            ("N", "ผู้เล่นคนใหม่ (ล้างความจำบอส + แยกไฟล์ข้อมูล)"),
             ("R", "รีเซ็ตคะแนนและความจำบอส"),
             ("M", "เปิด/ปิดเสียง"),
             ("G", "แสดง/ซ่อนเส้นโครงมือ"),

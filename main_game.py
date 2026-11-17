@@ -12,7 +12,7 @@
 #    นับถอยหลัง 3-2-1 -> เปลี่ยนท่าได้จนกว่าจะนับจบ
 #    ตัดสินผล -> บอสเลือกท่าจาก "ประวัติก่อนหน้า" เท่านั้น (ไม่เห็นท่าตานี้)
 #
-#  บันทึก Telemetry การเล่นจริงลง data/gameplay_telemetry.csv อัตโนมัติ
+#  บันทึก Telemetry การเล่นจริงลง data/players/<ชื่อผู้เล่น>.csv อัตโนมัติ (แยกไฟล์ต่อคน)
 # =====================================================
 import os
 import csv
@@ -21,11 +21,13 @@ import argparse
 from datetime import datetime
 import cv2
 
-from adaptive_arena import (GAME_BOSSES, BEST_COMBOS, WARM_COMBO, WARM_DECAY, ComboEnsembleBoss, judge, MOVES)
+from adaptive_arena import (GAME_BOSSES, DEFAULT_GAME_BOSS, BEST_COMBOS, WARM_COMBO, WARM_DECAY, ComboEnsembleBoss, judge, MOVES)
 from hand_detector import HandDetector
 from ui_renderer import UIRenderer, short_boss_name, GREEN, ACCENT, AMBER, RED
 from sound_effects import SoundManager
 from model_io import save_boss_model, load_boss_model, list_saved_models
+from telemetry import (append_round, player_file, canonical_name, ask_player_name, validate_name,
+                       next_visitor_name)
 
 
 # สถานะเกม
@@ -52,7 +54,7 @@ class RockPaperScissorsGame:
         self.detector = HandDetector(max_hands=1, detection_con=0.7, track_con=0.6)
 
         # โมเดล 2: บอส AI
-        self.boss_index = 5             # บอส 6 (Ensemble) เป็นค่าเริ่มต้น
+        self.boss_index = DEFAULT_GAME_BOSS   # Lite Ensemble (N-gram + ML) เป็นค่าเริ่มต้น
         self.combo_size = 2             # ขนาดของ Lite Ensemble (บอส 9)
         self.initial_model_toast = None
         self.boss = self.make_boss(self.boss_index)
@@ -97,12 +99,10 @@ class RockPaperScissorsGame:
         # Toast
         self.toast_text, self.toast_color, self.toast_expiry = "", GREEN, 0.0
 
-        # Telemetry
-        self.data_dir = "data"
-        os.makedirs(self.data_dir, exist_ok=True)
-        self.telemetry_path = os.path.join(self.data_dir, "gameplay_telemetry.csv")
+        # Telemetry: แยกไฟล์ตามผู้เล่น data/players/<ชื่อ>.csv
+        self.player_name = canonical_name(self.player_name)
+        self.telemetry_path = player_file(self.player_name)
         self.session_id = f"webcam_{int(time.time())}"
-        self._init_telemetry_file()
         self.saved_model_cycle_idx = 0
 
     # ------------------------------------------------------------------
@@ -133,19 +133,12 @@ class RockPaperScissorsGame:
     # ------------------------------------------------------------------
     #  Telemetry
     # ------------------------------------------------------------------
-    def _init_telemetry_file(self):
-        if not os.path.exists(self.telemetry_path) or os.path.getsize(self.telemetry_path) == 0:
-            with open(self.telemetry_path, "w", newline="", encoding="utf-8") as f:
-                csv.writer(f).writerow(["timestamp", "round_id", "player_name", "player_move",
-                                        "ai_move", "result", "reaction_time_ms"])
-
     def log_telemetry(self, player_move, ai_move, result, reaction_ms):
         """reaction_time_ms = เวลาจาก 'พร้อมรับท่า' จนระบบเห็นท่าสุดท้ายของผู้เล่นนิ่ง (วัดจริง)"""
         try:
-            with open(self.telemetry_path, "a", newline="", encoding="utf-8") as f:
-                csv.writer(f).writerow([datetime.now().isoformat(), self.round_no, self.player_name,
-                                        player_move, ai_move, result,
-                                        "" if reaction_ms is None else int(round(reaction_ms))])
+            append_round(self.player_name, [datetime.now().isoformat(), self.round_no, self.player_name,
+                                            player_move, ai_move, result,
+                                            "" if reaction_ms is None else int(round(reaction_ms))])
         except Exception as e:
             print(f"[Telemetry Error] {e}")
 
@@ -201,6 +194,18 @@ class RockPaperScissorsGame:
         self.cancel_round()
         self.sound.shoot()
         self.show_toast("รีเซ็ตคะแนนและความจำบอสแล้ว", color=ACCENT)
+
+    def new_player(self):
+        """ปุ่ม N: คนใหม่มาเล่นต่อ — สรุปผลคนเก่า, ตั้งชื่อ visitor อัตโนมัติ, ล้างความจำบอส, แยกไฟล์ข้อมูลใหม่"""
+        if self.round_no:
+            ai_wr = self.losses / self.round_no * 100
+            print(f"\n[สรุป {self.player_name}] {self.round_no} ตา | ผู้เล่นชนะ {self.wins} "
+                  f"| บอสชนะ {self.losses} ({ai_wr:.0f}%) | เสมอ {self.draws}")
+        self.player_name = next_visitor_name()
+        self.telemetry_path = player_file(self.player_name)
+        self.reset_score()
+        self.show_toast(f"ผู้เล่นใหม่: {self.player_name}  (บอสเริ่มเรียนรู้ใหม่)", color=GREEN, duration=4.0)
+        print(f">>> ผู้เล่นใหม่: {self.player_name} -> {self.telemetry_path}")
 
     def init_camera(self):
         self.cap = cv2.VideoCapture(self.camera_id)
@@ -464,7 +469,7 @@ class RockPaperScissorsGame:
             self._set_overlay(menu=not self.menu_open, help_=False)
         elif k == "h":
             self._set_overlay(help_=not self.help_open, menu=False)
-        elif "1" <= k <= "9":
+        elif "1" <= k <= str(len(GAME_BOSSES)):
             self.switch_boss(int(k) - 1)
             self._set_overlay(menu=False)
         elif k == "s":
@@ -474,6 +479,9 @@ class RockPaperScissorsGame:
             self._set_overlay(menu=False)
         elif k == "r":
             self.reset_score()
+        elif k == "n":
+            self.new_player()
+            self._set_overlay(menu=False, help_=False)
         elif k == "m":
             self.sound.enabled = not self.sound.enabled
         elif k == "g":
@@ -491,11 +499,11 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     player_name = args.player
+    if player_name and validate_name(player_name):
+        print(validate_name(player_name))
+        player_name = None
     if not player_name:
-        try:
-            player_name = input("ชื่อผู้เล่น (Enter = 'Player'): ").strip() or "Player"
-        except (KeyboardInterrupt, EOFError):
-            player_name = "Player"
+        player_name = ask_player_name()          # Enter = visitor_<วันที่>_<ลำดับ> อัตโนมัติ
 
     model_path = args.model
     if not model_path and player_name:

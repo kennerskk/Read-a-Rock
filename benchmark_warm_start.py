@@ -23,6 +23,7 @@ import argparse
 
 import numpy as np
 import pandas as pd
+from telemetry import read_telemetry
 from scipy import stats
 
 if sys.stdout and hasattr(sys.stdout, "reconfigure"):
@@ -54,7 +55,7 @@ def variants(table):
 
 
 def load_sessions(csv_path, min_rounds=100, gap_min=10.0):
-    df = pd.read_csv(csv_path)
+    df = read_telemetry(csv_path)
     df["pkey"] = df["player_name"].astype(str).str.strip().str.lower()
     df = df[~df["pkey"].isin(SYNTHETIC_PLAYERS) & df["player_move"].isin(MOVES)].copy()
     df["ts"] = pd.to_datetime(df["timestamp"], errors="coerce")
@@ -148,7 +149,7 @@ BIN_LABELS = ["1-5", "6-10", "11-20", "21-30", "31-50", "51+"]
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--csv", default="data/gameplay_telemetry.csv")
+    ap.add_argument("--csv", default="data/players")
     ap.add_argument("--reps", type=int, default=50)
     ap.add_argument("--rounds", type=int, default=150, help="จำนวนตาต่อแมตช์ของ persona จำลอง")
     ap.add_argument("--out", default="reports/warm_start.md")

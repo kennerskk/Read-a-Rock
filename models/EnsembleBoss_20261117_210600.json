@@ -1,0 +1,49 @@
+{
+  "metadata": {
+    "model_type": "EnsembleBoss",
+    "boss_name": "6. Ensemble/Meta (เลือกโมเดลที่แม่นสุดตอนนี้)",
+    "boss_desc": "รันหลายโมเดลพร้อมกัน แล้วเชื่อตัวที่ทายแม่นสุดช่วงนี้ (กันโดนหลอก)",
+    "exported_at": "2026-11-17T21:06:00.767213",
+    "timestamp_epoch": 1794924360.7672167,
+    "version": "1.0.0",
+    "author": "Antigravity Data Science Pipeline",
+    "custom_name": "บอสแก้ทาง ธThree (ชนะ AI 0%)",
+    "target_player": "ธThree",
+    "stats": {
+      "total_rounds": 0,
+      "player_wins": 0,
+      "ai_wins": 0,
+      "draws": 0,
+      "ai_winrate_pct": 0.0,
+      "session_id": "webcam_1794924321"
+    }
+  },
+  "state": {
+    "scores": {
+      "freq": 0,
+      "decay": 0,
+      "markov": 0,
+      "ngram": 0
+    },
+    "experts": {
+      "freq": {
+        "counts": {}
+      },
+      "decay": {
+        "weights": {
+          "ค้อน": 0.0,
+          "กรรไกร": 0.0,
+          "กระดาษ": 0.0
+        },
+        "decay": 0.85
+      },
+      "markov": {
+        "table": {}
+      },
+      "ngram": {
+        "k": 2,
+        "table": {}
+      }
+    }
+  }
+}

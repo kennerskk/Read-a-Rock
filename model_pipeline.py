@@ -34,6 +34,7 @@ if sys.stdout and hasattr(sys.stdout, 'reconfigure'):
 
 import numpy as np
 import pandas as pd
+from telemetry import read_telemetry
 from scipy import stats
 
 # Scikit-learn สำหรับ Supervised Learning
@@ -104,14 +105,12 @@ class HumanBehaviorSimulator:
         return mv
 
 
-def generate_or_load_telemetry(csv_path: str = "data/gameplay_telemetry.csv", rounds: int = 1500, player_name: Optional[str] = None) -> pd.DataFrame:
+def generate_or_load_telemetry(csv_path: str = "data/players", rounds: int = 1500, player_name: Optional[str] = None) -> pd.DataFrame:
     """
     โหลดข้อมูล telemetry การเล่นจริง หรือกรองเฉพาะผู้เล่นที่ระบุ หรือสร้างชุดข้อมูลจำลองหากข้อมูลไม่พอ
     """
-    os.makedirs(os.path.dirname(csv_path) if os.path.dirname(csv_path) else ".", exist_ok=True)
-
-    if os.path.exists(csv_path) and os.path.getsize(csv_path) > 100:
-        df = pd.read_csv(csv_path)
+    df = read_telemetry(csv_path)
+    if len(df) > 0:
         if "player_name" not in df.columns:
             df.insert(2, "player_name", "Guest")
 
@@ -591,7 +590,7 @@ def generate_pipeline_report(eda_report: Dict[str, Any], cv_results: Dict[str, A
 # ==============================================================================
 #  MAIN PIPELINE EXECUTION ENGINE
 # ==============================================================================
-def run_pipeline(mode: str = "full", input_csv: str = "data/gameplay_telemetry.csv", rounds: int = 1500, export_path: Optional[str] = None, report_path: Optional[str] = None, player_name: Optional[str] = None):
+def run_pipeline(mode: str = "full", input_csv: str = "data/players", rounds: int = 1500, export_path: Optional[str] = None, report_path: Optional[str] = None, player_name: Optional[str] = None):
     print("=" * 80)
     print("🚀 เริ่มกระบวนการ Data Science Model Acquisition Pipeline")
     target_desc = f"ผู้เล่น: {player_name}" if player_name else "ผู้เล่นทุกคน (Global Population)"
@@ -666,7 +665,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="End-to-End Data Science Model Acquisition Pipeline")
     parser.add_argument("--mode", type=str, default="full", choices=["full", "eda", "train"], help="โหมดการทำงาน")
     parser.add_argument("--player", type=str, default=None, help="ชื่อผู้เล่นที่ต้องการสร้างโมเดลเฉพาะบุคคล (เช่น --player Ken)")
-    parser.add_argument("--input", type=str, default="data/gameplay_telemetry.csv", help="พาธไฟล์ข้อมูล Telemetry CSV")
+    parser.add_argument("--input", type=str, default="data/players", help="โฟลเดอร์ไฟล์ผู้เล่น (data/players) หรือไฟล์ Telemetry CSV")
     parser.add_argument("--rounds", type=int, default=1500, help="จำนวนรอบจำลองข้อมูลพฤติกรรม")
     parser.add_argument("--export", type=str, default=None, help="พาธเซฟโมเดลที่ได้ (ค่าเริ่มต้น: models/ds_champion_<player>.json)")
     parser.add_argument("--report", type=str, default=None, help="พาธเซฟรายงาน Markdown (ค่าเริ่มต้น: reports/pipeline_report_<player>.md)")

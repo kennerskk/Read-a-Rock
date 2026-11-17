@@ -31,6 +31,7 @@ if sys.stdout is not None and hasattr(sys.stdout, "reconfigure"):
 
 import numpy as np
 import pandas as pd
+from telemetry import read_telemetry
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -66,7 +67,7 @@ def collect_oos_predictions(csv_path: str, n_folds: int = 10, seed: int = 42):
     เก็บผลทำนาย out-of-sample ด้วย walk-forward (expanding window)
     คืน dict: ชื่อโมเดล -> {y_true, y_pred, y_proba, fold_acc[], fold_ll[]}
     """
-    df = pd.read_csv(csv_path)
+    df = read_telemetry(csv_path)
     X, y, feat_names = FeatureStore.build_features(df)
     X = np.asarray(X)
     y = np.asarray(y)
@@ -366,7 +367,7 @@ def write_summary(outdir, meta, store, best, aucs, cm, cm_pct, prf, bars, per_cl
 
 def main():
     ap = argparse.ArgumentParser(description="สร้างรูป confusion matrix และ ROC สำหรับสไลด์")
-    ap.add_argument("--csv", default="data/gameplay_telemetry.csv")
+    ap.add_argument("--csv", default="data/players")
     ap.add_argument("--folds", type=int, default=10)
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--outdir", default="reports/figures")
