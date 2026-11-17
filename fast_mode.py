@@ -23,6 +23,7 @@ from sound_effects import SoundManager
 from model_io import save_boss_model, load_boss_model, list_saved_models
 from telemetry import append_round, player_file, canonical_name, ask_player_name, validate_name
 from ui_renderer import short_boss_name
+from i18n import t, set_lang, toggle_lang, bot_desc
 
 
 class FastArena:
@@ -36,9 +37,9 @@ class FastArena:
             try:
                 self.boss = load_boss_model(model_path)
                 b_name = getattr(self.boss, "name", os.path.basename(model_path))
-                print(f"✅ โหลดโมเดลคู่ปรับสำเร็จ: {b_name} ({model_path})")
+                print(t("fm.loaded", name=b_name, path=model_path))
             except Exception as e:
-                print(f"⚠️ ไม่สามารถโหลดโมเดล {model_path} ได้: {e}")
+                print(t("fm.load_fail", path=model_path, e=e))
                 self.boss = BOSSES[self.boss_idx]()
         else:
             self.boss = BOSSES[self.boss_idx]()
@@ -66,20 +67,20 @@ class FastArena:
             self.boss_idx = index
             self.boss = BOSSES[self.boss_idx]()
             self.sound.change_boss()
-            print(f"\n🔄 สลับไปเจอบอส: {self.boss.name}")
+            print(t("fm.switched", name=self.boss.name))
 
     def load_custom_model(self):
         models = list_saved_models()
         if not models:
-            print("\n⚠️ ยังไม่มีโมเดลที่บันทึกไว้ในโฟลเดอร์ models/")
+            print(t("fm.no_models"))
             return
 
-        print("\n📂 รายการโมเดลที่พบใน models/:")
+        print(t("fm.models"))
         for i, m in enumerate(models, start=1):
             name = m.get("custom_name") or m.get("boss_name") or m.get("filename")
-            print(f"  [{i}] {name}  (ไฟล์: {m['filename']})")
+            print(t("fm.model_row", i=i, name=name, f=m["filename"]))
 
-        choice = input("เลือกหมายเลขโมเดลที่ต้องการโหลด (หรือกด Enter เพื่อยกเลิก): ").strip()
+        choice = input(t("fm.pick_model")).strip()
         if not choice.isdigit():
             return
 
@@ -89,15 +90,15 @@ class FastArena:
                 loaded = load_boss_model(models[idx]["filepath"])
                 self.boss = loaded
                 self.sound.change_boss()
-                print(f"✅ โหลดโมเดลสำเร็จ: {models[idx]['filename']}")
+                print(t("fm.model_ok", f=models[idx]["filename"]))
             except Exception as e:
-                print(f"❌ โหลดโมเดลไม่สำเร็จ: {e}")
+                print(t("fm.model_fail", e=e))
 
     def save_current_model(self):
         ai_wr = (self.losses / self.round_no * 100) if self.round_no > 0 else 0.0
-        custom_name = input("ตั้งชื่อโมเดล (กด Enter เพื่อใช้ชื่ออัตโนมัติ): ").strip()
+        custom_name = input(t("fm.name_model")).strip()
         meta = {
-            "custom_name": custom_name if custom_name else f"บอสแก้ทาง {self.player_name} (Winrate {ai_wr:.0f}%)",
+            "custom_name": custom_name if custom_name else t("fm.custom_name", player=self.player_name, p=f"{ai_wr:.0f}"),
             "target_player": self.player_name,
             "stats": {
                 "total_rounds": self.round_no,
@@ -108,44 +109,39 @@ class FastArena:
             }
         }
         path = save_boss_model(self.boss, metadata=meta)
-        print(f"💾 บันทึกโมเดลเรียบร้อยที่: {path}")
+        print(t("fm.saved", path=path))
 
     def change_player_name(self):
-        print(f"\n👤 ผู้เล่นปัจจุบัน: {self.player_name}")
-        new_name = input("ใส่ชื่อผู้เล่นใหม่ (กด Enter เพื่อยกเลิก): ").strip()
+        print(t("fm.cur_player", name=self.player_name))
+        new_name = input(t("fm.new_name")).strip()
         if new_name and validate_name(new_name):
-            print(f"⚠️ {validate_name(new_name)} ยังไม่เปลี่ยนชื่อ")
+            print(t("fm.bad_name", msg=validate_name(new_name)))
             return
         if new_name:
             if self.round_no:
                 ai_wr = self.losses / self.round_no * 100
-                print(f"📋 สรุป {self.player_name}: {self.round_no} ตา | ชนะ {self.wins} | บอสชนะ {self.losses} ({ai_wr:.0f}%)")
+                print(t("fm.summary", name=self.player_name, n=self.round_no, w=self.wins, l=self.losses, p=f"{ai_wr:.0f}"))
             self.player_name = canonical_name(new_name)
             self.telemetry_path = player_file(self.player_name)
             # คนใหม่ = บอสต้องเริ่มเรียนรู้ใหม่ ไม่ให้นิสัยคนก่อนปนมา
             self.opp_history = []
             self.round_no = self.wins = self.losses = self.draws = 0
             self.boss = BOSSES[self.boss_idx]()
-            print(f"✅ เปลี่ยนผู้เล่นเป็น: {self.player_name} แล้ว! รีเซ็ตคะแนนและความจำบอส ตาต่อไปจะบันทึกในชื่อนี้")
+            print(t("fm.player_changed", name=self.player_name))
 
     def set_pace(self):
-        print(f"\n⏱️ เวลาต่อตาปัจจุบัน: {self.pace_sec:.2f} วินาที")
-        print("คำแนะนำ:")
-        print("  0   = รู้ผลทันที (Instant Mode — เหมาะสำหรับเก็บ Data หลายสิบตาไวๆ)")
-        print("  0.5 = เร็วมาก (กำลังสนุก)")
-        print("  1.0 = ปานกลาง")
-        print("  2.0 = ปกติ")
-        print("  3.0 = โหมดช้า (เท่ากับหน้ากล้อง)")
-        raw = input("ใส่เวลาต่อตาที่ต้องการ (วินาที): ").strip()
+        print(t("fm.cur_pace", s=f"{self.pace_sec:.2f}"))
+        print(t("fm.pace_help"))
+        raw = input(t("fm.ask_pace")).strip()
         try:
             val = float(raw)
             if val < 0:
-                print("❌ เวลาต้องไม่ติดลบ")
+                print(t("fm.neg_pace"))
             else:
                 self.pace_sec = val
-                print(f"✅ ปรับเวลาต่อตาเป็น {self.pace_sec:.2f} วินาทีแล้ว!")
+                print(t("fm.pace_set", s=f"{self.pace_sec:.2f}"))
         except ValueError:
-            print("❌ กรุณาใส่ตัวเลข")
+            print(t("fm.not_number"))
 
     def play_round(self, player_move: str, reaction_ms: Optional[float] = None):
         # 1. บอสตัดสินใจจากประวัติก่อนหน้านี้
@@ -159,7 +155,7 @@ class FastArena:
                 print(f"  ⏱️ {i}...", end="\r", flush=True)
                 self.sound.tick()
                 time.sleep(delay_step)
-            print("  🥊 ยิ้งฉุบ!         ")
+            print(t("fm.shoot"))
             self.sound.shoot()
         else:
             self.sound.shoot()
@@ -177,23 +173,23 @@ class FastArena:
         if result == "win":
             self.wins += 1
             self.sound.win()
-            tag = "คุณชนะ! 🎉"
+            tag = t("fm.win")
         elif result == "lose":
             self.losses += 1
             self.sound.lose()
-            tag = "บอสชนะ! 🤖"
+            tag = t("fm.lose")
         else:
             self.draws += 1
             self.sound.draw()
-            tag = "เสมอ! 🤝"
+            tag = t("fm.draw")
 
         # 6. บันทึก Telemetry อัตโนมัติ
         self.log_telemetry(player_move, boss_move, result, reaction_ms)
 
         wr = (self.wins / self.round_no) * 100
         ai_wr = (self.losses / self.round_no) * 100
-        print(f"👉 [ตา {self.round_no}] คุณ: {player_move}  vs  บอส: {boss_move}  ->  {tag}")
-        print(f"   📊 ชนะ {self.wins}/{self.round_no} ({wr:.1f}%) | บอสชนะ: {ai_wr:.1f}% | เสมอ: {self.draws}")
+        print(t("fm.round", n=self.round_no, p=t(player_move), b=t(boss_move), tag=tag))
+        print(t("fm.stats", w=self.wins, n=self.round_no, wr=f"{wr:.1f}", ai=f"{ai_wr:.1f}", d=self.draws))
 
     def run(self):
         move_map = {
@@ -206,20 +202,15 @@ class FastArena:
         }
 
         print("=" * 65)
-        print("⚡ FAST ARENA — โหมดประลองด่วน (No-Cam + Custom Speed)")
-        print(f"👤 ผู้เล่น: {self.player_name}")
-        print(f"👾 บอสปัจจุบัน: {self.boss.name}")
-        print(f"⏱️ เวลาต่อตา: {self.pace_sec:.2f} วินาที")
+        print(t("fm.title"))
+        print(t("fm.player", name=self.player_name))
+        print(t("fm.cur_bot", name=self.boss.name))
+        print(t("fm.pace", s=f"{self.pace_sec:.2f}"))
         print("=" * 65)
-        print("ปุ่มกดเลือกท่า:")
-        print("  [1] ค้อน ✊   [2] กรรไกร ✌️   [3] กระดาษ ✋")
-        print("ปุ่มจัดการ:")
-        print(f"  [u] เปลี่ยนชื่อผู้เล่น   [t] ปรับเวลาต่อตา    [b] สลับบอส (1-{len(BOSSES)})")
-        print("  [s] บันทึกโมเดล        [l] โหลดโมเดล        [m] เปิด/ปิดเสียง")
-        print("  [r] รีเซ็ตคะแนน        [q] สรุปผลและเลิกเล่น\n")
+        print(t("fm.keys", n=len(BOSSES)))
 
         while True:
-            prompt = f"[{self.player_name} | ตา {self.round_no + 1} | {self.pace_sec:.1f}s] ออกท่า (1/2/3): "
+            prompt = t("fm.prompt", name=self.player_name, n=self.round_no + 1, s=f"{self.pace_sec:.1f}")
             try:
                 t_prompt = time.perf_counter()
                 cmd = input(prompt).strip().lower()
@@ -237,10 +228,10 @@ class FastArena:
             elif cmd == "t":
                 self.set_pace()
             elif cmd == "b":
-                print("\nรายชื่อบอส:")
+                print(t("fm.bot_list"))
                 for i, b in enumerate(BOSSES, start=1):
-                    print(f"  [{i}] {short_boss_name(b.name)}  —  {b.desc}")
-                b_choice = input(f"เลือกหมายเลขบอส (1-{len(BOSSES)}): ").strip()
+                    print(f"  [{i}] {short_boss_name(b.name)}  —  {bot_desc(b)}")
+                b_choice = input(t("fm.pick_bot", n=len(BOSSES))).strip()
                 if b_choice.isdigit() and 1 <= int(b_choice) <= len(BOSSES):
                     self.switch_boss(int(b_choice) - 1)
             elif cmd == "s":
@@ -249,7 +240,11 @@ class FastArena:
                 self.load_custom_model()
             elif cmd == "m":
                 self.sound.enabled = not self.sound.enabled
-                print(f"🔊 เสียงเอฟเฟกต์: {'เปิด' if self.sound.enabled else 'ปิด'}")
+                print(t("fm.sound", state=t("fm.on") if self.sound.enabled else t("fm.off")))
+            elif cmd == "e":
+                toggle_lang()
+                print(t("fm.lang"))
+                print(t("fm.keys", n=len(BOSSES)))
             elif cmd == "r":
                 self.opp_history = []
                 self.round_no = 0
@@ -257,26 +252,26 @@ class FastArena:
                 self.losses = 0
                 self.draws = 0
                 self.boss = BOSSES[self.boss_idx]()
-                print("🔄 รีเซ็ตคะแนนและสมองบอสเรียบร้อย!")
+                print(t("fm.reset"))
             elif cmd in move_map:
                 self.play_round(move_map[cmd], decision_ms)
             else:
-                print("⚠️ กด 1 (ค้อน), 2 (กรรไกร), 3 (กระดาษ) หรือกด 't' เพื่อปรับเวลา")
+                print(t("fm.bad_key"))
 
         print("\n" + "=" * 50)
-        print("🏁 สรุปผลการเล่น Fast Arena")
+        print(t("fm.end_title"))
         if self.round_no > 0:
             wr = (self.wins / self.round_no) * 100
             ai_wr = (self.losses / self.round_no) * 100
-            print(f"เล่นทั้งหมด: {self.round_no} ตา")
-            print(f"คุณชนะ: {self.wins} ({wr:.1f}%) | บอสชนะ: {self.losses} ({ai_wr:.1f}%) | เสมอ: {self.draws}")
-            print(f"📁 บันทึกข้อมูล Telemetry แล้วที่: {self.telemetry_path}")
-            save_opt = input("\n💾 ต้องการเซฟโมเดลบอสตัวนี้ไว้สู้รอบหน้าไหม? (y/n): ").strip().lower()
+            print(t("fm.total", n=self.round_no))
+            print(t("fm.final", w=self.wins, wr=f"{wr:.1f}", l=self.losses, ai=f"{ai_wr:.1f}", d=self.draws))
+            print(t("fm.telemetry", path=self.telemetry_path))
+            save_opt = input(t("fm.ask_save")).strip().lower()
             if save_opt == "y":
                 self.save_current_model()
         else:
-            print("ยังไม่มีการเล่น")
-        print("ขอบคุณที่ร่วมสนุกครับ! 👋\n")
+            print(t("fm.no_play"))
+        print(t("fm.bye"))
 
 
 def parse_args():
@@ -284,13 +279,15 @@ def parse_args():
     parser.add_argument("--player", type=str, default=None, help="ชื่อผู้เล่น (เช่น --player Ken)")
     parser.add_argument("--model", type=str, default=None, help="พาธไฟล์โมเดล JSON ที่ต้องการโหลด (เช่น models/ds_champion_ken.json)")
     parser.add_argument("--pace", type=float, default=0.5, help="เวลาต่อตาเป็นวินาที (เช่น 0 = ทันที, 0.5, 1.0, 3.0)")
-    parser.add_argument("--boss", type=int, default=DEFAULT_GAME_BOSS + 1, help="หมายเลขบอสเริ่มต้น: 1=Markov 2=N-gram 3=ML 4=Lite Ensemble (ค่าเริ่มต้น)")
+    parser.add_argument("--boss", type=int, default=DEFAULT_GAME_BOSS + 1, help="หมายเลขบอทเริ่มต้น / starting bot: 1=Markov 2=N-gram 3=ML 4=Lite Ensemble (ค่าเริ่มต้น)")
     parser.add_argument("--no-sound", action="store_true", help="ปิดเสียงเอฟเฟกต์")
+    parser.add_argument("--lang", choices=["th", "en"], default="th", help="Language / ภาษา (default th, type 'e' in game to switch)")
     return parser.parse_args()
 
 
 if __name__ == "__main__":
     args = parse_args()
+    set_lang(args.lang)
     player_name = args.player
     if player_name and validate_name(player_name):
         print(f"⚠️ {validate_name(player_name)}")
@@ -304,7 +301,7 @@ if __name__ == "__main__":
         candidate = f"models/ds_champion_{clean_name}.json"
         if os.path.exists(candidate):
             try:
-                ans = input(f"🤖 ตรวจพบโมเดลแชมเปียนเฉพาะบุคคล: '{candidate}'\n   ต้องการโหลดมาเป็นคู่ต่อสู้เลยไหม? (Y/n): ").strip().lower()
+                ans = input(t("fm.champion", path=candidate)).strip().lower()
                 if ans in ["", "y", "yes"]:
                     model_path = candidate
             except (KeyboardInterrupt, EOFError):

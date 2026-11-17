@@ -3,7 +3,7 @@
 #
 #  หลักการออกแบบ:
 #   - แต่ละสถานะของเกมมีข้อความกลางจอเพียงข้อความเดียว บอกว่า "ต้องทำอะไรต่อ"
-#   - ใช้สีสื่อความหมายคงที่: เขียว = ชนะ, แดง = แพ้, เหลือง = เสมอ, ฟ้า = ข้อมูล/บอส
+#   - ใช้สีสื่อความหมายคงที่: เขียว = ชนะ, แดง = แพ้, เหลือง = เสมอ, ฟ้า = ข้อมูล/บอท
 #   - ไม่ใช้ emoji (ฟอนต์ไทยใน Windows วาด emoji ไม่ได้ จะขึ้นเป็นกล่องสี่เหลี่ยม)
 #   - วาดตัวอักษรเฉพาะบริเวณที่จำเป็น (ROI) ไม่แปลงภาพทั้งเฟรม -> เร็วขึ้นมาก
 # =====================================================
@@ -12,6 +12,7 @@ import re
 import cv2
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
+from i18n import t, bot_desc
 
 # สี (B, G, R)
 WHITE = (245, 245, 245)
@@ -31,9 +32,9 @@ MOVE_COLOR = {
 }
 EMOJI = {"ค้อน": "✊", "กรรไกร": "✌", "กระดาษ": "✋"}
 RESULT_STYLE = {
-    "win":  ("คุณชนะ!", GREEN),
-    "lose": ("บอสชนะ", RED),
-    "draw": ("เสมอ", AMBER),
+    "win":  ("res.win", GREEN),
+    "lose": ("res.lose", RED),
+    "draw": ("res.draw", AMBER),
 }
 
 
@@ -165,36 +166,35 @@ class UIRenderer:
         cv2.line(img, (0, 66), (w, 66), PANEL_LINE, 1)
 
         # ซ้าย: ตาที่ + คะแนน
-        self.text(img, f"ตาที่ {round_no}", (20, 8), size=15, color=MUTED)
+        self.text(img, t("top.round", n=round_no), (20, 8), size=15, color=MUTED)
         x = 20
-        for label, val, col in (("ชนะ", wins, GREEN), ("เสมอ", draws, AMBER), ("แพ้", losses, RED)):
-            x += self.text(img, f"{label} ", (x, 28), size=19, color=INK2)
+        for label, val, col in (("top.wins", wins, GREEN), ("top.draws", draws, AMBER), ("top.losses", losses, RED)):
+            x += self.text(img, f"{t(label)} ", (x, 28), size=19, color=INK2)
             x += self.text(img, str(val), (x, 26), size=22, bold=True, color=col) + 20
         if round_no:
-            self.text(img, f"คุณชนะ {wins / round_no * 100:.0f}%", (x, 30), size=16, color=MUTED)
+            self.text(img, t("top.winrate", p=f"{wins / round_no * 100:.0f}"), (x, 30), size=16, color=MUTED)
 
         # กลาง: บอส
         cx = w // 2
-        self.text(img, "คู่ต่อสู้", (cx, 8), size=14, color=MUTED, align="c")
+        self.text(img, t("top.opponent"), (cx, 8), size=14, color=MUTED, align="c")
         self.text(img, short_boss_name(boss_name)[:34], (cx, 27), size=21, bold=True, color=ACCENT, align="c")
 
         # ขวา: สถานะ
         chips = [
-            (f"{countdown_sec:.1f} วิ", INK2, False),
-            ("เสียง" if sound_on else "ปิดเสียง", INK2 if sound_on else MUTED, False),
-            ("AUTO", GREEN, True) if auto_mode else ("AUTO ปิด", MUTED, False),
+            (t("top.sec", s=f"{countdown_sec:.1f}"), INK2, False),
+            (t("top.sound") if sound_on else t("top.muted"), INK2 if sound_on else MUTED, False),
+            (t("top.auto"), GREEN, True) if auto_mode else (t("top.auto_off"), MUTED, False),
         ]
-        widths = [self.text_width(t, 15, True) + 20 for t, _, _ in chips]
+        widths = [self.text_width(s, 15, True) + 20 for s, _, _ in chips]
         x = w - 20 - sum(widths) - 8 * (len(chips) - 1)
-        for (t, c, f), cw in zip(chips, widths):
-            self.chip(img, t, x, 18, c, size=15, filled=f)
+        for (s, c, f), cw in zip(chips, widths):
+            self.chip(img, s, x, 18, c, size=15, filled=f)
             x += cw + 8
 
         # ผล 12 ตาล่าสุด (สี่เหลี่ยมเล็กใต้แถบ)
         if recent_results:
             x = 20
-            self.text(img, "ล่าสุด", (x, 74), size=14, color=INK2)
-            x += 48
+            x += self.text(img, t("top.recent"), (x, 74), size=14, color=INK2) + 8
             for r in recent_results[-12:]:
                 col = {"win": GREEN, "lose": RED, "draw": AMBER}.get(r, MUTED)
                 cv2.rectangle(img, (x, 79), (x + 13, 92), col, -1, cv2.LINE_AA)
@@ -210,23 +210,23 @@ class UIRenderer:
         col = MOVE_COLOR.get(gesture, MUTED)
         self.panel(img, x, y, cw, ch, border=col if gesture in MOVE_COLOR else PANEL_LINE,
                    thickness=2 if gesture in MOVE_COLOR else 1)
-        self.text(img, f"คุณ  ·  {player_name}", (x + 16, y + 10), size=15, color=INK2)
+        self.text(img, t("card.you", name=player_name), (x + 16, y + 10), size=15, color=INK2)
 
         # ไฟสถานะกล้องเห็นมือ
         dot = GREEN if hand_visible else RED
         cv2.circle(img, (x + cw - 22, y + 20), 6, dot, -1, cv2.LINE_AA)
-        self.text(img, "เห็นมือ" if hand_visible else "ไม่เห็นมือ", (x + cw - 34, y + 10), size=13,
+        self.text(img, t("card.hand") if hand_visible else t("card.no_hand"), (x + cw - 34, y + 10), size=13,
                   color=dot, align="r")
 
         if gesture in MOVE_COLOR:
-            self.text(img, gesture, (x + 16, y + 34), size=40, bold=True, color=col)
+            self.text(img, t(gesture), (x + 16, y + 34), size=40, bold=True, color=col)
             if locked:
-                self.chip(img, "ล็อกแล้ว", x + cw - 108, y + 48, GREEN, size=14, filled=True)
+                self.chip(img, t("card.locked"), x + cw - 108, y + 48, GREEN, size=14, filled=True)
         else:
-            self.text(img, "ยังไม่เห็นท่า", (x + 16, y + 44), size=26, color=MUTED)
+            self.text(img, t("card.no_move"), (x + 16, y + 44), size=26, color=MUTED)
 
         # นิ้วที่กาง (5 จุด)
-        self.text(img, "นิ้วที่กาง", (x + 16, y + 98), size=13, color=MUTED)
+        self.text(img, t("card.fingers"), (x + 16, y + 98), size=13, color=MUTED)
         for i in range(5):
             cxp = x + 96 + i * 22
             on = hand_visible and i < fingers
@@ -287,32 +287,32 @@ class UIRenderer:
         reveal = mode == "reveal" and boss_move in MOVE_COLOR
         col = MOVE_COLOR[boss_move] if reveal else ACCENT
         self.panel(img, x, y, cw, ch, border=col, thickness=2 if reveal else 1)
-        self.text(img, "บอส AI", (x + 16, y + 10), size=15, color=INK2)
+        self.text(img, t("card.bot"), (x + 16, y + 10), size=15, color=INK2)
 
         ex, ey = x + 92, y + 98
         if reveal:
-            t = anim_t
-            if t < 0.12:
-                scale = 0.55 + 0.65 * t / 0.12
-            elif t < 0.26:
-                scale = 1.2 - 0.2 * (t - 0.12) / 0.14
+            a = anim_t
+            if a < 0.12:
+                scale = 0.55 + 0.65 * a / 0.12
+            elif a < 0.26:
+                scale = 1.2 - 0.2 * (a - 0.12) / 0.14
             else:
                 scale = 1.0
             drawn = self.blit_emoji(img, boss_move, ex, ey, 104, scale)
-            self.text(img, boss_move, (x + 182, y + 70), size=34, bold=True, color=col)
+            self.text(img, t(boss_move), (x + 182, y + 70), size=34, bold=True, color=col)
             if not drawn:
-                self.text(img, "ออกท่าแล้ว", (x + 16, y + 80), size=20, color=col)
+                self.text(img, t("card.thrown"), (x + 16, y + 80), size=20, color=col)
         else:
             if mode == "pump":
                 bob = -abs(np.sin(min(1.0, anim_t) * 3 * np.pi)) * 26     # เขย่ามือ 3 จังหวะ
                 drawn = self.blit_emoji(img, "ค้อน", ex, ey + 10 + bob, 104, 0.92)
-                label, lcol = "เป่า... ยิ้ง... ฉุบ!", WHITE
+                label, lcol = t("card.pump"), WHITE
             else:
                 drawn = self.blit_emoji(img, "ค้อน", ex, ey + 10, 104, 0.92, alpha=0.55)
-                label, lcol = "รอคุณออกท่า", MUTED
+                label, lcol = t("card.waiting"), MUTED
             self.text(img, label, (x + 172, y + 82), size=18, color=lcol)
             if not drawn:
-                self.text(img, "ซ่อนท่าอยู่...", (x + 16, y + 80), size=24, color=MUTED)
+                self.text(img, t("card.hidden"), (x + 16, y + 80), size=24, color=MUTED)
         self.text(img, self.fit(boss_desc, 12, cw - 32), (x + 16, y + ch - 28), size=12, color=MUTED)
 
     # ------------------------------------------------------------------
@@ -327,8 +327,8 @@ class UIRenderer:
     def draw_idle_prompt(self, img):
         x, y = self._center_box(img, 520, 110, ACCENT)
         cx = x + 260
-        self.text(img, "พร้อมเล่นแล้ว", (cx, y + 14), size=28, bold=True, color=WHITE, align="c")
-        self.text(img, "กด SPACE เล่น 1 ตา   ·   กด A เล่นต่อเนื่อง", (cx, y + 62), size=18, color=INK2, align="c")
+        self.text(img, t("idle.title"), (cx, y + 14), size=28, bold=True, color=WHITE, align="c")
+        self.text(img, t("idle.hint"), (cx, y + 62), size=18, color=INK2, align="c")
 
     def draw_wait_gesture(self, img, carry_move, waited_sec, lock_progress=0.0, repeat_progress=0.0):
         """รอให้ผู้เล่นทำท่า — ยังไม่นับถอยหลังจนกว่าจะเห็นท่าชัด
@@ -336,14 +336,14 @@ class UIRenderer:
         x, y = self._center_box(img, 580, 140, ACCENT)
         cx = x + 290
         if carry_move:
-            self.text(img, "เปลี่ยนท่าได้เลย", (cx, y + 12), size=28, bold=True, color=WHITE, align="c")
-            self.text(img, f"หรือค้าง \"{carry_move}\" ไว้เพื่อออกท่าเดิมซ้ำ", (cx, y + 56), size=18,
+            self.text(img, t("wait.change"), (cx, y + 12), size=28, bold=True, color=WHITE, align="c")
+            self.text(img, t("wait.hold", m=t(carry_move)), (cx, y + 56), size=18,
                       color=INK2, align="c")
         else:
-            self.text(img, "ทำท่าให้กล้องเห็น", (cx, y + 12), size=28, bold=True, color=WHITE, align="c")
-            self.text(img, "ค้อน (กำมือ)  ·  กรรไกร (2 นิ้ว)  ·  กระดาษ (แบมือ)", (cx, y + 56), size=18,
+            self.text(img, t("wait.show"), (cx, y + 12), size=28, bold=True, color=WHITE, align="c")
+            self.text(img, t("wait.moves"), (cx, y + 56), size=18,
                       color=INK2, align="c")
-        self.text(img, f"จับเวลาตอบสนอง {waited_sec:.1f} วิ", (cx, y + 92), size=14, color=MUTED, align="c")
+        self.text(img, t("wait.timer", s=f"{waited_sec:.1f}"), (cx, y + 92), size=14, color=MUTED, align="c")
         prog, col = (repeat_progress, AMBER) if repeat_progress > lock_progress else (lock_progress, GREEN)
         if prog > 0:
             bw = 420
@@ -362,34 +362,35 @@ class UIRenderer:
         cv2.circle(img, (cx, cy), r, (60, 64, 74), 6, cv2.LINE_AA)
         cv2.ellipse(img, (cx, cy), (r, r), -90, 0, int(360 * min(1.0, progress)), ACCENT, 6, cv2.LINE_AA)
         if number == 0:
-            self.text(img, "ออก!", (cx, cy - 34), size=52, bold=True, color=GREEN, align="c")
+            self.text(img, t("cd.go"), (cx, cy - 34), size=52, bold=True, color=GREEN, align="c")
         else:
             self.text(img, str(number), (cx, cy - 58), size=96, bold=True, color=WHITE, align="c")
         if locked_move:
             self.panel(img, cx - 240, cy + r + 26, 480, 64, alpha=0.88, border=None)
-            note = "(ล็อกแล้ว)" if number == 0 else "(เปลี่ยนได้จนกว่าจะนับจบ)"
-            self.text(img, f"ท่าของคุณ: {locked_move}   {note}", (cx, cy + r + 32),
+            note = t("cd.locked") if number == 0 else t("cd.changeable")
+            self.text(img, t("cd.your_move", m=t(locked_move), note=note), (cx, cy + r + 32),
                       size=17, color=WHITE, align="c")
             if reaction_ms is not None:
-                self.text(img, f"เวลาตอบสนอง {reaction_ms / 1000:.2f} วิ", (cx, cy + r + 60), size=14,
+                self.text(img, t("reaction", s=f"{reaction_ms / 1000:.2f}"), (cx, cy + r + 60), size=14,
                           color=INK2, align="c")
 
     def draw_result_banner(self, img, result, player_move, boss_move, reaction_ms=None, auto_mode=False):
         title, col = RESULT_STYLE.get(result, ("-", WHITE))
+        title = t(title)
         x, y = self._center_box(img, 560, 196, col)
         cx = x + 280
         self.text(img, title, (cx, y + 12), size=46, bold=True, color=col, align="c")
         # คุณ vs บอส
-        self.text(img, "คุณ", (cx - 140, y + 82), size=15, color=MUTED, align="c")
-        self.text(img, player_move, (cx - 140, y + 100), size=30, bold=True,
+        self.text(img, t("res.you"), (cx - 140, y + 82), size=15, color=MUTED, align="c")
+        self.text(img, t(player_move), (cx - 140, y + 100), size=30, bold=True,
                   color=MOVE_COLOR.get(player_move, WHITE), align="c")
         self.text(img, "VS", (cx, y + 104), size=22, bold=True, color=MUTED, align="c")
-        self.text(img, "บอส", (cx + 140, y + 82), size=15, color=MUTED, align="c")
-        self.text(img, boss_move, (cx + 140, y + 100), size=30, bold=True,
+        self.text(img, t("res.bot"), (cx + 140, y + 82), size=15, color=MUTED, align="c")
+        self.text(img, t(boss_move), (cx + 140, y + 100), size=30, bold=True,
                   color=MOVE_COLOR.get(boss_move, WHITE), align="c")
-        foot = "ตาถัดไปจะเริ่มเองเมื่อเห็นท่าใหม่" if auto_mode else "กด SPACE เล่นตาถัดไป"
+        foot = t("res.next_auto") if auto_mode else t("res.next_space")
         if reaction_ms is not None:
-            foot = f"เวลาตอบสนอง {reaction_ms / 1000:.2f} วิ   ·   " + foot
+            foot = t("reaction", s=f"{reaction_ms / 1000:.2f}") + "   ·   " + foot
         self.text(img, foot, (cx, y + 160), size=15, color=INK2, align="c")
 
     def draw_message(self, img, text, color=AMBER):
@@ -405,49 +406,41 @@ class UIRenderer:
         self.panel(img, 0, h - 46, w, 46, alpha=0.86, border=None)
         cv2.line(img, (0, h - 46), (w, h - 46), PANEL_LINE, 1)
         x = 20
-        for k, label in (("SPACE", "เล่น"), ("A", "ออโต้"), ("T", "ความเร็ว"), ("B", "เลือกบอส"),
-                         ("4", "Lite Ensemble"), ("N", "คนใหม่"), ("H", "ปุ่มทั้งหมด"), ("Q", "ออก")):
-            x = self.keycap(img, k, label, x, h - 36)
+        for k, label in (("SPACE", "key.play"), ("A", "key.auto"), ("T", "key.speed"), ("B", "key.bots"),
+                         ("4", "Lite Ensemble"), ("N", "key.new"), ("E", "key.lang"), ("H", "key.all"), ("Q", "key.quit")):
+            x = self.keycap(img, k, t(label), x, h - 36)
 
     def draw_help_overlay(self, img):
         ih, iw = img.shape[:2]
-        mw, mh = 640, 510
+        mw, mh = 640, 547
         mx, my = (iw - mw) // 2, (ih - mh) // 2
         self.panel(img, mx, my, mw, mh, alpha=0.95, border=ACCENT, thickness=2)
-        self.text(img, "ปุ่มทั้งหมด", (mx + 28, my + 18), size=26, bold=True, color=ACCENT)
+        self.text(img, t("help.title"), (mx + 28, my + 18), size=26, bold=True, color=ACCENT)
         rows = [
-            ("SPACE", "เริ่มตาใหม่ (แล้วทำท่าให้กล้องเห็น)"),
-            ("A", "โหมดออโต้: เริ่มตาใหม่เองเมื่อเห็นท่า"),
-            ("T", "ความเร็วนับถอยหลัง 3 / 2 / 1.5 / 1 วิ"),
-            ("B", "เปิดรายชื่อบอส  ·  1-4 เปลี่ยนบอส"),
-            ("4", "Lite Ensemble (กดซ้ำ: 2 / 3 / 4 โมเดล / Warm start)"),
-            ("S / L", "บันทึก / โหลดสมองบอส"),
-            ("N", "ผู้เล่นคนใหม่ (ล้างความจำบอส + แยกไฟล์ข้อมูล)"),
-            ("R", "รีเซ็ตคะแนนและความจำบอส"),
-            ("M", "เปิด/ปิดเสียง"),
-            ("G", "แสดง/ซ่อนเส้นโครงมือ"),
-            ("Q / ESC", "ออกจากเกม"),
+            ("SPACE", "help.space"), ("A", "help.auto"), ("T", "help.speed"), ("B", "help.bots"),
+            ("4", "help.combo"), ("S / L", "help.save"), ("N", "help.new"), ("R", "help.reset"),
+            ("M", "help.mute"), ("G", "help.landmarks"), ("E", "help.lang"), ("Q / ESC", "help.quit"),
         ]
         y = my + 72
         for k, label in rows:
-            self.keycap(img, k, label, mx + 32, y, size=16)
+            self.keycap(img, k, t(label), mx + 32, y, size=16)
             y += 37
-        self.text(img, "กด H อีกครั้งเพื่อปิด", (mx + mw // 2, my + mh - 34), size=14, color=MUTED, align="c")
+        self.text(img, t("help.close"), (mx + mw // 2, my + mh - 34), size=14, color=MUTED, align="c")
 
     def draw_boss_selection_menu(self, img, bosses, current_idx):
         ih, iw = img.shape[:2]
         mw, mh = 700, 112 + 46 * len(bosses)
         mx, my = (iw - mw) // 2, max(70, (ih - mh) // 2)
         self.panel(img, mx, my, mw, mh, alpha=0.95, border=ACCENT, thickness=2)
-        self.text(img, "เลือกบอส", (mx + 28, my + 16), size=26, bold=True, color=ACCENT)
-        self.text(img, "กดตัวเลขเพื่อเลือก  ·  B ปิด", (mx + mw - 28, my + 24), size=15, color=MUTED, align="r")
+        self.text(img, t("menu.title"), (mx + 28, my + 16), size=26, bold=True, color=ACCENT)
+        self.text(img, t("menu.hint"), (mx + mw - 28, my + 24), size=15, color=MUTED, align="r")
         y = my + 66
         for i, b in enumerate(bosses):
             active = i == current_idx
             if active:
                 self.panel(img, mx + 16, y - 4, mw - 32, 44, bg=(50, 44, 30), alpha=0.9, border=ACCENT)
-            name = getattr(b, "name", f"บอส {i + 1}")
-            desc = getattr(b, "desc", "")
+            name = getattr(b, "name", t("menu.bot_n", n=i + 1))
+            desc = bot_desc(b)
             self.keycap(img, str(i + 1), "", mx + 26, y + 4, size=15)
             self.text(img, self.fit(short_boss_name(name), 18, mw - 100, True), (mx + 70, y), size=18,
                       bold=True, color=ACCENT if active else WHITE)

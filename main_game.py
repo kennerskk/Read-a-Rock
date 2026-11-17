@@ -25,6 +25,7 @@ from adaptive_arena import (GAME_BOSSES, DEFAULT_GAME_BOSS, BEST_COMBOS, WARM_CO
 from hand_detector import HandDetector
 from ui_renderer import UIRenderer, short_boss_name, GREEN, ACCENT, AMBER, RED
 from sound_effects import SoundManager
+from i18n import t, set_lang, toggle_lang, bot_desc
 from model_io import save_boss_model, load_boss_model, list_saved_models
 from telemetry import (append_round, player_file, canonical_name, ask_player_name, validate_name,
                        next_visitor_name)
@@ -62,10 +63,10 @@ class RockPaperScissorsGame:
             try:
                 self.boss = load_boss_model(model_path)
                 b_name = getattr(self.boss, "name", os.path.basename(model_path))
-                self.initial_model_toast = f"โหลดโมเดล: {short_boss_name(b_name)[:30]}"
-                print(f"โหลดโมเดลคู่ปรับสำเร็จ: {b_name} ({model_path})")
+                self.initial_model_toast = t("toast.loaded", name=short_boss_name(b_name)[:30])
+                print(t("log.loaded", name=b_name, path=model_path))
             except Exception as e:
-                print(f"ไม่สามารถโหลดโมเดล {model_path} ได้: {e}")
+                print(t("log.load_fail", path=model_path, e=e))
 
         self.ui = UIRenderer()
         self.sound = SoundManager(enabled=True)
@@ -127,8 +128,8 @@ class RockPaperScissorsGame:
         self.boss_index = index
         self.boss = self.make_boss(index)
         self.sound.change_boss()
-        self.show_toast(f"เปลี่ยนบอส: {short_boss_name(self.boss.name)[:40]}", color=ACCENT)
-        print(f">>> เปลี่ยนเป็นบอส: {self.boss.name}")
+        self.show_toast(t("toast.switched", name=short_boss_name(self.boss.name)[:40]), color=ACCENT)
+        print(t("log.switched", name=self.boss.name))
 
     # ------------------------------------------------------------------
     #  Telemetry
@@ -151,31 +152,31 @@ class RockPaperScissorsGame:
     def export_current_boss(self):
         ai_wr = (self.losses / self.round_no * 100) if self.round_no else 0.0
         meta = {
-            "custom_name": f"บอสแก้ทาง {self.player_name} (ชนะ AI {ai_wr:.0f}%)",
+            "custom_name": t("meta.custom_name", player=self.player_name, p=f"{ai_wr:.0f}"),
             "target_player": self.player_name,
             "stats": {"total_rounds": self.round_no, "player_wins": self.wins, "ai_wins": self.losses,
                       "draws": self.draws, "ai_winrate_pct": ai_wr, "session_id": self.session_id},
         }
         saved = save_boss_model(self.boss, metadata=meta)
-        self.show_toast(f"บันทึกโมเดลแล้ว: {os.path.basename(saved)}")
+        self.show_toast(t("toast.saved", f=os.path.basename(saved)))
         self.sound.shoot()
         print(f"[Export Model] {saved}")
 
     def import_saved_boss(self):
         models = list_saved_models("models")
         if not models:
-            self.show_toast("ยังไม่มีโมเดลใน models/ — กด S เพื่อบันทึกก่อน", color=AMBER)
+            self.show_toast(t("toast.no_models"), color=AMBER)
             return
         selected = models[self.saved_model_cycle_idx % len(models)]
         self.saved_model_cycle_idx += 1
         try:
             self.boss = load_boss_model(selected["filepath"])
-            name = getattr(self.boss, "name", selected.get("filename", "Custom Boss"))
-            self.show_toast(f"โหลดโมเดล: {short_boss_name(name)[:34]}  (กด L ซ้ำเพื่อเปลี่ยน)", color=ACCENT)
+            name = getattr(self.boss, "name", selected.get("filename", "Custom Bot"))
+            self.show_toast(t("toast.loaded_cycle", name=short_boss_name(name)[:34]), color=ACCENT)
             self.sound.change_boss()
             print(f"[Import Model] {selected['filepath']}")
         except Exception as e:
-            self.show_toast(f"โหลดโมเดลไม่สำเร็จ: {e}", color=RED)
+            self.show_toast(t("toast.load_fail", e=e), color=RED)
 
     def cycle_speed(self):
         try:
@@ -184,7 +185,7 @@ class RockPaperScissorsGame:
             nxt = 0
         self.countdown_duration = self.speed_presets[nxt]
         self.result_duration = max(1.2, round(self.countdown_duration * 0.7, 1))
-        self.show_toast(f"นับถอยหลัง {self.countdown_duration:.1f} วินาที", color=AMBER)
+        self.show_toast(t("toast.speed", s=f"{self.countdown_duration:.1f}"), color=AMBER)
 
     def reset_score(self):
         self.opp_history, self.recent_results = [], []
@@ -193,24 +194,24 @@ class RockPaperScissorsGame:
         self.boss = self.make_boss(self.boss_index)
         self.cancel_round()
         self.sound.shoot()
-        self.show_toast("รีเซ็ตคะแนนและความจำบอสแล้ว", color=ACCENT)
+        self.show_toast(t("toast.reset"), color=ACCENT)
 
     def new_player(self):
         """ปุ่ม N: คนใหม่มาเล่นต่อ — สรุปผลคนเก่า, ตั้งชื่อ visitor อัตโนมัติ, ล้างความจำบอส, แยกไฟล์ข้อมูลใหม่"""
         if self.round_no:
             ai_wr = self.losses / self.round_no * 100
-            print(f"\n[สรุป {self.player_name}] {self.round_no} ตา | ผู้เล่นชนะ {self.wins} "
-                  f"| บอสชนะ {self.losses} ({ai_wr:.0f}%) | เสมอ {self.draws}")
+            print(t("log.summary", name=self.player_name, n=self.round_no, w=self.wins,
+                    l=self.losses, p=f"{ai_wr:.0f}", d=self.draws))
         self.player_name = next_visitor_name()
         self.telemetry_path = player_file(self.player_name)
         self.reset_score()
-        self.show_toast(f"ผู้เล่นใหม่: {self.player_name}  (บอสเริ่มเรียนรู้ใหม่)", color=GREEN, duration=4.0)
-        print(f">>> ผู้เล่นใหม่: {self.player_name} -> {self.telemetry_path}")
+        self.show_toast(t("toast.new_player", name=self.player_name), color=GREEN, duration=4.0)
+        print(t("log.new_player", name=self.player_name, path=self.telemetry_path))
 
     def init_camera(self):
         self.cap = cv2.VideoCapture(self.camera_id)
         if not self.cap.isOpened():
-            print(f"[ERROR] ไม่สามารถเปิดกล้อง ID {self.camera_id} ได้")
+            print(t("log.no_camera", id=self.camera_id))
             return False
         self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
@@ -335,7 +336,7 @@ class RockPaperScissorsGame:
         self.state = STATE_RESULT
         self.log_telemetry(player_move, boss_move, result, self.reaction_ms)
         rt = f"{self.reaction_ms:.0f} ms" if self.reaction_ms is not None else "-"
-        print(f"[ตา {self.round_no}] คุณ: {player_move} | บอส: {boss_move} -> {result} | reaction {rt}")
+        print(t("log.round", n=self.round_no, p=t(player_move), b=t(boss_move), r=result, rt=rt))
 
     # ------------------------------------------------------------------
     #  ลูปหลัก
@@ -345,14 +346,14 @@ class RockPaperScissorsGame:
             return
         window = "Read-a-Rock: AI Arena"
         cv2.namedWindow(window, cv2.WINDOW_NORMAL)
-        print("\nเกมพร้อมแล้ว — กด H ในหน้าต่างเกมเพื่อดูปุ่มทั้งหมด, Q เพื่อออก\n")
+        print(t("log.ready"))
         if self.initial_model_toast:
             self.show_toast(self.initial_model_toast, color=ACCENT, duration=4.0)
 
         while True:
             ok, frame = self.cap.read()
             if not ok:
-                print("[ERROR] อ่านภาพจากกล้องไม่ได้")
+                print(t("log.cam_read"))
                 break
             frame = cv2.flip(frame, 1)
             frame, hands = self.detector.find_hands(frame, draw=self.draw_landmarks)
@@ -411,7 +412,7 @@ class RockPaperScissorsGame:
                 b_move, b_mode, b_t = self.last_boss_move, "reveal", now - self.reveal_time
             else:
                 b_move, b_mode, b_t = None, "idle", 0.0
-            self.ui.draw_boss_card(frame, b_move, getattr(self.boss, "desc", ""), b_mode, b_t)
+            self.ui.draw_boss_card(frame, b_move, bot_desc(self.boss), b_mode, b_t)
             self.ui.draw_top_bar(frame, self.round_no, self.wins, self.losses, self.draws, self.boss.name,
                                  self.auto_mode, self.sound.enabled, self.countdown_duration, self.recent_results)
             self.ui.draw_footer_controls(frame)
@@ -431,7 +432,7 @@ class RockPaperScissorsGame:
         self.detector.close()
         self.cap.release()
         cv2.destroyAllWindows()
-        print("\nขอบคุณที่เล่นครับ!")
+        print(t("log.thanks"))
 
     def _set_overlay(self, menu=None, help_=None):
         was_open = self.menu_open or self.help_open
@@ -459,7 +460,7 @@ class RockPaperScissorsGame:
                 self.begin_round()
         elif k == "a":
             self.auto_mode = not self.auto_mode
-            self.show_toast("ออโต้: เริ่มตาใหม่เองเมื่อเห็นท่า" if self.auto_mode else "ปิดออโต้",
+            self.show_toast(t("toast.auto_on") if self.auto_mode else t("toast.auto_off"),
                             color=GREEN if self.auto_mode else AMBER)
             if self.auto_mode:
                 self.begin_round()
@@ -486,6 +487,9 @@ class RockPaperScissorsGame:
             self.sound.enabled = not self.sound.enabled
         elif k == "g":
             self.draw_landmarks = not self.draw_landmarks
+        elif k == "e":
+            toggle_lang()
+            self.show_toast(t("toast.lang"), color=ACCENT)
         return True
 
 
@@ -496,7 +500,9 @@ if __name__ == "__main__":
     parser.add_argument("--player", type=str, default=None, help="Player name (e.g. --player Ken)")
     parser.add_argument("--model", type=str, default=None, help="Path to model JSON (e.g. models/ds_champion_ken.json)")
     parser.add_argument("--auto", action="store_true", help="เริ่มในโหมดออโต้")
+    parser.add_argument("--lang", choices=["th", "en"], default="th", help="Language / ภาษา (default th, press E in game to switch)")
     args = parser.parse_args()
+    set_lang(args.lang)
 
     player_name = args.player
     if player_name and validate_name(player_name):
@@ -510,7 +516,7 @@ if __name__ == "__main__":
         candidate = f"models/ds_champion_{player_name.strip().lower().replace(' ', '_')}.json"
         if os.path.exists(candidate):
             try:
-                ans = input(f"พบโมเดลเฉพาะบุคคล '{candidate}' — โหลดมาเป็นคู่ต่อสู้ไหม? (Y/n): ").strip().lower()
+                ans = input(t("ask.champion", path=candidate)).strip().lower()
                 if ans in ("", "y", "yes"):
                     model_path = candidate
             except (KeyboardInterrupt, EOFError):

@@ -12,6 +12,7 @@ import re
 import csv
 import glob
 from typing import List, Optional
+from i18n import t
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # ตั้ง RPS_PLAYERS_DIR เพื่อชี้ไปโฟลเดอร์อื่น (เช่นตอนทดสอบ จะได้ไม่ปนข้อมูลจริง)
@@ -80,9 +81,9 @@ def next_visitor_name() -> str:
 def validate_name(name: str) -> Optional[str]:
     """คืนข้อความเตือนถ้าชื่อใช้ไม่ได้ หรือ None ถ้าใช้ได้"""
     if looks_mistyped(name):
-        return f"ชื่อ '{name}' มีอักษรไทยปนอังกฤษ — ลืมเปลี่ยนภาษาคีย์บอร์ดหรือเปล่า?"
+        return t("name.mistyped", name=name)
     if is_reserved(name):
-        return f"ชื่อ '{name}' สงวนไว้สำหรับข้อมูลจำลอง ใช้ชื่ออื่นแทน"
+        return t("name.reserved", name=name)
     return None
 
 
@@ -90,16 +91,16 @@ def ask_player_name(default: Optional[str] = None) -> str:
     """ถามชื่อผู้เล่นในเทอร์มินัล: โชว์ชื่อที่มีอยู่, เตือนชื่อผิด, กด Enter = ชื่อ visitor อัตโนมัติ"""
     existing = known_players()
     if existing:
-        print("ผู้เล่นที่มีข้อมูลอยู่แล้ว: " + ", ".join(existing))
+        print(t("name.existing", names=", ".join(existing)))
     default = default or next_visitor_name()
     while True:
         try:
-            name = input(f"ชื่อผู้เล่น (Enter = '{default}'): ").strip() or default
+            name = input(t("name.ask", default=default)).strip() or default
         except (KeyboardInterrupt, EOFError):
             return default
         msg = validate_name(name)
         if msg:
-            print(f"  ! {msg} พิมพ์ใหม่อีกครั้ง")
+            print(t("name.retry", msg=msg))
             continue
         return name
 

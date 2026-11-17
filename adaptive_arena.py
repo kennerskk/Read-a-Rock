@@ -1,8 +1,8 @@
 # =====================================================
 #  adaptive_arena.py — เกมเป่ายิ้งฉุบ (ค้อน/กรรไกร/กระดาษ)
-#  เล่นเองกับ "บอส AI" ที่เรียนรู้จับทางผู้เล่น
-#  เลือกได้ว่าจะเจอบอสสมองแบบไหน (8 algorithm + Custom Loaded Boss)
-#  รองรับการ Import / Export สถานะสมองของบอส
+#  เล่นเองกับ "บอท AI" ที่เรียนรู้จับทางผู้เล่น
+#  เลือกได้ว่าจะเจอบอทสมองแบบไหน (8 algorithm + Custom Loaded Boss)
+#  รองรับการ Import / Export สถานะสมองของบอท
 #
 #  วิธีเล่น:  python adaptive_arena.py
 #  ท่า: ค้อนชนะกรรไกร | กรรไกรชนะกระดาษ | กระดาษชนะค้อน
@@ -33,18 +33,18 @@ def judge(player_move: str, boss_move: str) -> str:
     if player_move == boss_move:
         return "draw"
     if BEATS[player_move] == boss_move:
-        return "win"      # ท่าผู้เล่นชนะท่าบอส
+        return "win"      # ท่าผู้เล่นชนะท่าบอท
     return "lose"
 
 
 # =====================================================
-#  บอสทุกตัวมีโครงสร้างเหมือนกัน:
-#    .choose(opp_history) -> ท่าบอส
+#  บอททุกตัวมีโครงสร้างเหมือนกัน:
+#    .choose(opp_history) -> ท่าบอท
 #    .learn(reward, opp_history) -> เรียนรู้
 #    .get_state() -> dict (สำหรับ export)
 #    .load_state(state) -> None (สำหรับ import)
 #  opp_history = list ท่าที่ผู้เล่นเคยออก (เก่า -> ใหม่)
-#  reward (มุมมองบอส): บอสชนะ +1 / เสมอ 0 / บอสแพ้ -1
+#  reward (มุมมองบอท): บอทชนะ +1 / เสมอ 0 / บอทแพ้ -1
 # =====================================================
 class Boss:
     name = "Boss"
@@ -290,7 +290,7 @@ class EnsembleBoss(Boss):
 
 class QLearningBoss(Boss):
     name = "7. Q-learning (Reinforcement Learning)"
-    desc = "เรียนจากรางวัลแพ้/ชนะจริง state=ท่าล่าสุดผู้เล่น action=ท่าบอส"
+    desc = "เรียนจากรางวัลแพ้/ชนะจริง state=ท่าล่าสุดผู้เล่น action=ท่าบอท"
 
     def __init__(self, alpha: float = 0.2, gamma: float = 0.9, eps: float = 0.1):
         self.Q = defaultdict(lambda: {m: 0.0 for m in MOVES})
@@ -336,7 +336,7 @@ class QLearningBoss(Boss):
 
 # ---------- Tier 4: โมเดล Data Science ขั้นสูง ----------
 class MLPredictorBoss(Boss):
-    name = "8. Data Science ML Boss (โมเดลพยากรณ์เชิงสถิติและพฤติกรรม)"
+    name = "8. Data Science ML Bot (โมเดลพยากรณ์เชิงสถิติและพฤติกรรม)"
     desc = "สกัดฟีเจอร์ WSLS + Markov + ลำดับ N-gram + ปรับน้ำหนักการทำนายแบบ Real-time"
 
     def __init__(self, weights: Optional[Dict[str, float]] = None):
@@ -457,7 +457,7 @@ BEST_COMBOS = {
     3: ("ngram", "qlearn", "ml"),
     4: ("freq", "ngram", "qlearn", "ml"),
 }
-BEST_COMBO = BEST_COMBOS[2]     # ค่าเริ่มต้นของบอส 9: เล็กสุดแต่โหดพอ ๆ กับชุดใหญ่
+BEST_COMBO = BEST_COMBOS[2]     # ค่าเริ่มต้นของบอท 9: เล็กสุดแต่โหดพอ ๆ กับชุดใหญ่
 
 
 # ---------- Population Prior: นิสัยรวมของผู้เล่น "ทุกคน" (ใช้แก้ปัญหาเริ่มเกมแล้วยังไม่รู้จักคนตรงหน้า) ----------
@@ -466,7 +466,7 @@ SYNTHETIC_PLAYERS = {"guest"}     # ข้อมูลจำลองจาก s
 
 
 def _res_from_reward(reward: int) -> str:
-    """reward มุมมองบอส -> ผลมุมมองผู้เล่น"""
+    """reward มุมมองบอท -> ผลมุมมองผู้เล่น"""
     return {-1: "win", 0: "draw", 1: "lose"}.get(reward, "draw")
 
 
@@ -547,7 +547,7 @@ class PopulationPriorBoss(Boss):
 
     def choose(self, opp_history: List[str]) -> str:
         p = self._dist(opp_history)
-        # ผลตอบแทนคาดหวังของบอสเมื่อออกท่า b = P(ผู้เล่นออกท่าที่ b ชนะ) - P(ผู้เล่นออกท่าที่ชนะ b)
+        # ผลตอบแทนคาดหวังของบอทเมื่อออกท่า b = P(ผู้เล่นออกท่าที่ b ชนะ) - P(ผู้เล่นออกท่าที่ชนะ b)
         ev = {b: p[BEATS[b]] - p[COUNTER[b]] for b in MOVES}
         best = max(ev.values())
         return random.choice([b for b in MOVES if ev[b] >= best - 1e-9])
@@ -569,7 +569,7 @@ ALL_EXPERTS = {**EXPERT_POOL, **EXTRA_EXPERTS}
 
 # Lite Ensemble แบบ warm start: รู้จักคนทั่วไปตั้งแต่ตาแรก แล้วค่อยเปลี่ยนไปเชื่อโมเดลที่เรียนจากคนตรงหน้า
 # ผลทดสอบ leave-one-player-out (reports/warm_start.md, ผู้เล่นจริง 2 คน): ยังไม่ต่างจาก Cold อย่างมีนัยสำคัญ
-# จึงเป็นแค่ตัวเลือกเสริมของ Lite Ensemble (กดปุ่มบอสซ้ำวนถึง "warm") ค่าเริ่มต้นยังเป็น BEST_COMBO
+# จึงเป็นแค่ตัวเลือกเสริมของ Lite Ensemble (กดปุ่มบอทซ้ำวนถึง "warm") ค่าเริ่มต้นยังเป็น BEST_COMBO
 WARM_COMBO = ("prior", "ngram", "ml")
 WARM_DECAY = 0.9
 
@@ -651,8 +651,8 @@ class ComboEnsembleBoss(Boss):
 
 # ---------- Custom Loaded Boss Wrapper ----------
 class CustomSavedBoss(Boss):
-    name = "[Custom Boss] โมเดลที่โหลดจากไฟล์"
-    desc = "โมเดล AI บอสที่เรียนรู้เฉพาะตัวและถูกนำเข้าจากไฟล์ภายนอก"
+    name = "[Custom Bot] โมเดลที่โหลดจากไฟล์"
+    desc = "โมเดล AI บอทที่เรียนรู้เฉพาะตัวและถูกนำเข้าจากไฟล์ภายนอก"
 
     def __init__(self, filepath: Optional[str] = None):
         self.inner_boss: Boss = EnsembleBoss()
@@ -664,7 +664,7 @@ class CustomSavedBoss(Boss):
         from model_io import load_boss_model
         loaded = load_boss_model(filepath)
         self.inner_boss = loaded
-        self.name = f"⭐ {getattr(loaded, 'name', 'Custom Boss')}"
+        self.name = f"⭐ {getattr(loaded, 'name', 'Custom Bot')}"
         self.desc = f"โหลดจาก {os.path.basename(filepath)}"
         self.loaded_filepath = filepath
 
@@ -704,9 +704,9 @@ BOSSES = [
     MLPredictorBoss
 ]
 
-# รายการบอสในเกม (เพิ่มบอส 9 = Lite Ensemble ชุดที่ดีที่สุดจาก benchmark)
+# รายการบอทในเกม (เพิ่มบอท 9 = Lite Ensemble ชุดที่ดีที่สุดจาก benchmark)
 # แยกจาก BOSSES เพื่อให้สคริปต์วิเคราะห์เดิม (statistical_test ฯลฯ) ได้ผลเหมือนเดิม
-# เหลือเฉพาะบอสที่เก่งจริงจาก benchmark (reports/ensemble_combos.md, Net Score กับคู่ต่อสู้ที่จับทางได้):
+# เหลือเฉพาะบอทที่เก่งจริงจาก benchmark (reports/ensemble_combos.md, Net Score กับคู่ต่อสู้ที่จับทางได้):
 #   Markov 37.7 | N-gram 40.7 | ML 39.6 | Lite Ensemble (N-gram + ML) 42.6
 # ตัดออกจากเมนูเกม: Random (~0), Frequency -0.5, Decay -10.0, Q-learning 20.7, Ensemble เดิม 36.7
 # (คลาสยังอยู่ใน BOSSES ให้สคริปต์วิเคราะห์ / โหลดโมเดลเก่าที่เซฟไว้ใช้ได้เหมือนเดิม)
@@ -715,12 +715,12 @@ DEFAULT_GAME_BOSS = GAME_BOSSES.index(ComboEnsembleBoss)
 
 
 # =====================================================
-#  เมนูเลือกบอส
+#  เมนูเลือกบอท
 # =====================================================
 def pick_boss() -> Optional[Boss]:
     from model_io import list_saved_models, load_boss_model
 
-    print("\n===== เลือกสมองบอสที่อยากเจอ =====")
+    print("\n===== เลือกสมองบอทที่อยากเจอ =====")
     for idx, cls in enumerate(BOSSES, start=1):
         print(f"  {idx}. {cls.name}")
         print(f"       {cls.desc}")
@@ -740,7 +740,7 @@ def pick_boss() -> Optional[Boss]:
             print("\n--- รายการโมเดลที่บันทึกไว้ ---")
             for i, m in enumerate(saved_models, start=1):
                 rounds = m.get("stats", {}).get("total_rounds", "?")
-                print(f"  [{i}] {m.get('filename')} (บอส: {m.get('boss_name')}, แข่งแล้ว: {rounds} ตา)")
+                print(f"  [{i}] {m.get('filename')} (บอท: {m.get('boss_name')}, แข่งแล้ว: {rounds} ตา)")
             pick_m = input(f"เลือกโมเดล 1-{len(saved_models)} (หรือกด Enter ยกเลิก): ").strip()
             if pick_m.isdigit() and 1 <= int(pick_m) <= len(saved_models):
                 selected = saved_models[int(pick_m) - 1]
@@ -755,7 +755,7 @@ def pick_boss() -> Optional[Boss]:
 
 
 # =====================================================
-#  วนเล่นกับบอสที่เลือก
+#  วนเล่นกับบอทที่เลือก
 # =====================================================
 def play(boss: Boss):
     from model_io import save_boss_model
@@ -792,12 +792,12 @@ def play(boss: Boss):
             continue
 
         player_move = num[raw]
-        boss_move = boss.choose(opp_history)     # บอสเลือกจากประวัติ "ก่อน" ตานี้
+        boss_move = boss.choose(opp_history)     # บอทเลือกจากประวัติ "ก่อน" ตานี้
         result = judge(player_move, boss_move)
 
-        # อัปเดตประวัติ + ให้บอสเรียนรู้
+        # อัปเดตประวัติ + ให้บอทเรียนรู้
         opp_history.append(player_move)
-        reward = {"win": -1, "draw": 0, "lose": 1}[result]  # มุมมองบอส
+        reward = {"win": -1, "draw": 0, "lose": 1}[result]  # มุมมองบอท
         boss.learn(reward, opp_history)
 
         round_no += 1
@@ -810,8 +810,8 @@ def play(boss: Boss):
 
         wr = win / round_no * 100
         ai_wr = lose / round_no * 100
-        print(f"    คุณออก {player_move} | บอสออก {boss_move} -> {tag}"
-              f"   (คุณชนะ {win}/{round_no} = {wr:.0f}% | บอสชนะ {ai_wr:.0f}%)")
+        print(f"    คุณออก {player_move} | บอทออก {boss_move} -> {tag}"
+              f"   (คุณชนะ {win}/{round_no} = {wr:.0f}% | บอทชนะ {ai_wr:.0f}%)")
 
     # สรุปผล
     print("\n===== สรุปผล =====")
@@ -819,15 +819,15 @@ def play(boss: Boss):
         print("ยังไม่ได้เล่นเลย")
     else:
         ai_wr = lose / round_no * 100
-        print(f"เล่นทั้งหมด {round_no} ตา | คุณชนะ {win} | AI บอสชนะ {lose} | เสมอ {draw}")
-        print(f"อัตราชนะของ AI บอส = {ai_wr:.1f}%  (อัตราชนะของคุณ = {win / round_no * 100:.1f}%)")
+        print(f"เล่นทั้งหมด {round_no} ตา | คุณชนะ {win} | AI บอทชนะ {lose} | เสมอ {draw}")
+        print(f"อัตราชนะของ AI บอท = {ai_wr:.1f}%  (อัตราชนะของคุณ = {win / round_no * 100:.1f}%)")
 
         # เสนอตัวเลือกให้ส่งออกโมเดล (Export Model)
-        save_opt = input("\n💾 ต้องการส่งออก (Export) โมเดล AI บอสตัวนี้ไว้ใช้หรือไม่? (y/n): ").strip().lower()
+        save_opt = input("\n💾 ต้องการส่งออก (Export) โมเดล AI บอทตัวนี้ไว้ใช้หรือไม่? (y/n): ").strip().lower()
         if save_opt == "y":
             model_name_input = input("ตั้งชื่อโมเดล (เว้นว่างเพื่อใช้ชื่ออัตโนมัติ): ").strip()
             meta = {
-                "custom_name": model_name_input if model_name_input else f"บอสแก้ทางผู้เล่น (Winrate {ai_wr:.0f}%)",
+                "custom_name": model_name_input if model_name_input else f"บอทแก้ทางผู้เล่น (Winrate {ai_wr:.0f}%)",
                 "stats": {
                     "total_rounds": round_no,
                     "player_wins": win,
@@ -843,7 +843,7 @@ def play(boss: Boss):
 
 def main():
     print("=========================================")
-    print("    ADAPTIVE ARENA — บอสเรียนรู้ + โมเดล I/O")
+    print("    ADAPTIVE ARENA — บอทเรียนรู้ + โมเดล I/O")
     print("=========================================")
     while True:
         boss = pick_boss()
@@ -851,7 +851,7 @@ def main():
             print("บายย 👋")
             break
         play(boss)
-        again = input("\nเล่นบอสตัวอื่นต่อมั้ย? (y/n): ").strip().lower()
+        again = input("\nเล่นบอทตัวอื่นต่อมั้ย? (y/n): ").strip().lower()
         if again != "y":
             print("บายย 👋")
             break
