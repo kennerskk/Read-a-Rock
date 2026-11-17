@@ -4,11 +4,66 @@
 #    - 0 นิ้ว (กำมือ)   -> "ค้อน"
 #    - 2 นิ้ว (ชี้+กลาง) -> "กรรไกร"
 #    - 5 นิ้ว (แบมือ)    -> "กระดาษ"
+#
+#  รองรับ MediaPipe ทั้งสองยุคโดยอัตโนมัติ:
+#    - Legacy API (mediapipe 0.10.x) : mp.solutions.hands
+#    - Tasks API  (mediapipe 1.x)    : mediapipe.tasks.python.vision.HandLandmarker
+#      MediaPipe 1.x ถอด mp.solutions ออกแล้ว โค้ดจึงตรวจหาเองว่ามี API ไหน
+#      แล้วเลือกใช้ให้เหมาะ ส่วนที่เรียกใช้ภายนอก (find_hands / classify_gesture)
+#      ทำงานเหมือนเดิมทุกประการ ไม่ต้องแก้ main_game.py
+#
+#  Tasks API ต้องใช้ไฟล์โมเดล hand_landmarker.task
+#  โค้ดจะดาวน์โหลดให้อัตโนมัติครั้งแรกไปไว้ที่ models/hand_landmarker.task
 # =====================================================
+import os
 import math
+import time
 from collections import deque
+
 import cv2
 import mediapipe as mp
+
+# ---------- ตรวจว่า MediaPipe เวอร์ชันนี้มี API ไหนให้ใช้ ----------
+_HAS_LEGACY = hasattr(mp, "solutions") and hasattr(getattr(mp, "solutions", None), "hands")
+_HAS_TASKS = False
+if not _HAS_LEGACY:
+    try:
+        from mediapipe.tasks import python as _mp_python
+        from mediapipe.tasks.python import vision as _mp_vision
+        _HAS_TASKS = True
+    except Exception:
+        _HAS_TASKS = False
+
+MP_VERSION = getattr(mp, "__version__", "unknown")
+
+HAND_LANDMARKER_URL = (
+    "https://storage.googleapis.com/mediapipe-models/hand_landmarker/"
+    "hand_landmarker/float16/1/hand_landmarker.task"
+)
+DEFAULT_MODEL_PATH = os.path.join("models", "hand_landmarker.task")
+
+# โครงสร้างเส้นเชื่อม 21 จุดของมือ (คงที่ทุกเวอร์ชัน) ใช้วาดเองเมื่อไม่มี drawing_utils เดิม
+HAND_CONNECTIONS = [
+    (0, 1), (1, 2), (2, 3), (3, 4),
+    (0, 5), (5, 6), (6, 7), (7, 8),
+    (5, 9), (9, 10), (10, 11), (11, 12),
+    (9, 13), (13, 14), (14, 15), (15, 16),
+    (13, 17), (17, 18), (18, 19), (19, 20),
+    (0, 17),
+]
+
+
+def ensure_hand_landmarker_model(path: str = DEFAULT_MODEL_PATH) -> str:
+    """ดาวน์โหลดไฟล์โมเดลสำหรับ Tasks API ถ้ายังไม่มี (ทำครั้งเดียว ~7 MB)"""
+    if os.path.exists(path) and os.path.getsize(path) > 100000:
+        return path
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    import urllib.request
+    print(f"[HandDetector] ดาวน์โหลดโมเดลตรวจจับมือครั้งแรก -> {path}")
+    print(f"               จาก {HAND_LANDMARKER_URL}")
+    urllib.request.urlretrieve(HAND_LANDMARKER_URL, path)
+    print("[HandDetector] ดาวน์โหลดเสร็จแล้ว")
+    return path
 
 
 def _dist(p1, p2):
@@ -17,23 +72,79 @@ def _dist(p1, p2):
 
 
 class HandDetector:
-    def __init__(self, max_hands=1, detection_con=0.7, track_con=0.6, history_len=5):
+    def __init__(self, max_hands=1, detection_con=0.7, track_con=0.6, history_len=5,
+                 model_path=DEFAULT_MODEL_PATH):
         self.max_hands = max_hands
         self.detection_con = detection_con
         self.track_con = track_con
+        self.backend = None
+        self._last_ts = 0
 
-        self.mp_hands = mp.solutions.hands
-        self.hands = self.mp_hands.Hands(
-            static_image_mode=False,
-            max_num_hands=max_hands,
-            min_detection_confidence=detection_con,
-            min_tracking_confidence=track_con
-        )
-        self.mp_draw = mp.solutions.drawing_utils
-        self.mp_draw_styles = mp.solutions.drawing_styles
+        if _HAS_LEGACY:
+            # ---------- MediaPipe 0.10.x ----------
+            self.backend = "legacy"
+            self.mp_hands = mp.solutions.hands
+            self.hands = self.mp_hands.Hands(
+                static_image_mode=False,
+                max_num_hands=max_hands,
+                min_detection_confidence=detection_con,
+                min_tracking_confidence=track_con
+            )
+            self.mp_draw = mp.solutions.drawing_utils
+            self.mp_draw_styles = mp.solutions.drawing_styles
+
+        elif _HAS_TASKS:
+            # ---------- MediaPipe 1.x ----------
+            self.backend = "tasks"
+            resolved = ensure_hand_landmarker_model(model_path)
+            options = _mp_vision.HandLandmarkerOptions(
+                base_options=_mp_python.BaseOptions(model_asset_path=resolved),
+                running_mode=_mp_vision.RunningMode.VIDEO,
+                num_hands=max_hands,
+                min_hand_detection_confidence=detection_con,
+                min_hand_presence_confidence=detection_con,
+                min_tracking_confidence=track_con,
+            )
+            self.landmarker = _mp_vision.HandLandmarker.create_from_options(options)
+
+        else:
+            raise RuntimeError(
+                f"MediaPipe {MP_VERSION} ที่ติดตั้งอยู่ไม่มีทั้ง mp.solutions.hands และ "
+                "mediapipe.tasks.python.vision ให้ใช้งาน\n"
+                "แก้ได้โดย:  pip install \"mediapipe==0.10.21\""
+            )
 
         # บัฟเฟอร์สำหรับ smoothing ท่าที่ตรวจจับได้ ป้องกันการกระพริบ
         self.gesture_history = deque(maxlen=history_len)
+
+    # ------------------------------------------------------------------
+    def _draw_manual(self, frame, pixel_lms):
+        """วาดโครงมือเองด้วย OpenCV (ใช้กับ Tasks API ที่ไม่มี drawing_utils เดิม)"""
+        for a, b in HAND_CONNECTIONS:
+            if a < len(pixel_lms) and b < len(pixel_lms):
+                cv2.line(frame, pixel_lms[a][:2], pixel_lms[b][:2], (0, 255, 128), 2)
+        for (px, py, _z) in pixel_lms:
+            cv2.circle(frame, (px, py), 3, (0, 200, 255), -1)
+
+    def _pack_hand(self, norm_pts, handedness, w, h):
+        """แปลง landmark normalized -> โครงสร้าง dict มาตรฐานของโปรเจกต์"""
+        pixel_lms, norm_lms, xs, ys = [], [], [], []
+        for lm in norm_pts:
+            px, py = int(lm.x * w), int(lm.y * h)
+            pixel_lms.append((px, py, lm.z))
+            norm_lms.append((lm.x, lm.y, lm.z))
+            xs.append(px)
+            ys.append(py)
+        x_min, x_max = min(xs), max(xs)
+        y_min, y_max = min(ys), max(ys)
+        bbox = (x_min - 20, y_min - 20, (x_max - x_min) + 40, (y_max - y_min) + 40)
+        return {
+            "landmarks": pixel_lms,
+            "norm_landmarks": norm_lms,
+            "bbox": bbox,
+            "handedness": handedness,
+            "raw_landmarks": norm_pts,
+        }
 
     def find_hands(self, frame, draw=True):
         """
@@ -48,50 +159,49 @@ class HandDetector:
         """
         h, w, _ = frame.shape
         img_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        results = self.hands.process(img_rgb)
-
         hands_data = []
 
-        if results.multi_hand_landmarks:
-            for hand_idx, hand_lms in enumerate(results.multi_hand_landmarks):
-                # ตรวจ handedness ถ้ามี
+        if self.backend == "legacy":
+            results = self.hands.process(img_rgb)
+            if results.multi_hand_landmarks:
+                for hand_idx, hand_lms in enumerate(results.multi_hand_landmarks):
+                    handedness = "Right"
+                    if results.multi_handedness and hand_idx < len(results.multi_handedness):
+                        handedness = results.multi_handedness[hand_idx].classification[0].label
+
+                    info = self._pack_hand(hand_lms.landmark, handedness, w, h)
+                    info["raw_landmarks"] = hand_lms
+
+                    if draw:
+                        self.mp_draw.draw_landmarks(
+                            frame,
+                            hand_lms,
+                            self.mp_hands.HAND_CONNECTIONS,
+                            self.mp_draw.DrawingSpec(color=(0, 255, 128), thickness=2, circle_radius=3),
+                            self.mp_draw.DrawingSpec(color=(0, 200, 255), thickness=2, circle_radius=2)
+                        )
+                    hands_data.append(info)
+
+        else:  # tasks API
+            # timestamp ต้องเพิ่มขึ้นเสมอใน VIDEO mode
+            ts = max(self._last_ts + 1, int(time.perf_counter() * 1000))
+            self._last_ts = ts
+            mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=img_rgb)
+            result = self.landmarker.detect_for_video(mp_image, ts)
+
+            for hand_idx, norm_pts in enumerate(result.hand_landmarks or []):
                 handedness = "Right"
-                if results.multi_handedness and hand_idx < len(results.multi_handedness):
-                    handedness = results.multi_handedness[hand_idx].classification[0].label
+                try:
+                    cats = result.handedness[hand_idx]
+                    if cats:
+                        handedness = cats[0].category_name
+                except Exception:
+                    pass
 
-                pixel_lms = []
-                norm_lms = []
-                x_list = []
-                y_list = []
-
-                for lm in hand_lms.landmark:
-                    px, py = int(lm.x * w), int(lm.y * h)
-                    pixel_lms.append((px, py, lm.z))
-                    norm_lms.append((lm.x, lm.y, lm.z))
-                    x_list.append(px)
-                    y_list.append(py)
-
-                x_min, x_max = min(x_list), max(x_list)
-                y_min, y_max = min(y_list), max(y_list)
-                bbox = (x_min - 20, y_min - 20, (x_max - x_min) + 40, (y_max - y_min) + 40)
-
+                info = self._pack_hand(norm_pts, handedness, w, h)
                 if draw:
-                    # วาดเส้นเชื่อมต่อจุด landmark
-                    self.mp_draw.draw_landmarks(
-                        frame,
-                        hand_lms,
-                        self.mp_hands.HAND_CONNECTIONS,
-                        self.mp_draw.DrawingSpec(color=(0, 255, 128), thickness=2, circle_radius=3),
-                        self.mp_draw.DrawingSpec(color=(0, 200, 255), thickness=2, circle_radius=2)
-                    )
-
-                hands_data.append({
-                    "landmarks": pixel_lms,
-                    "norm_landmarks": norm_lms,
-                    "bbox": bbox,
-                    "handedness": handedness,
-                    "raw_landmarks": hand_lms
-                })
+                    self._draw_manual(frame, info["landmarks"])
+                hands_data.append(info)
 
         return frame, hands_data
 
@@ -198,4 +308,10 @@ class HandDetector:
         }
 
     def close(self):
-        self.hands.close()
+        try:
+            if self.backend == "legacy":
+                self.hands.close()
+            else:
+                self.landmarker.close()
+        except Exception:
+            pass
