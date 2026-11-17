@@ -23,7 +23,7 @@ import cv2
 
 from adaptive_arena import (GAME_BOSSES, DEFAULT_GAME_BOSS, BEST_COMBOS, WARM_COMBO, WARM_DECAY, ComboEnsembleBoss, judge, MOVES)
 from hand_detector import HandDetector
-from ui_renderer import UIRenderer, short_boss_name, GREEN, ACCENT, AMBER, RED
+from ui_renderer import UIRenderer, short_boss_name, ACID, INK, EMBER, ERROR
 from sound_effects import SoundManager
 from i18n import t, set_lang, toggle_lang, bot_desc
 from model_io import save_boss_model, load_boss_model, list_saved_models
@@ -98,7 +98,7 @@ class RockPaperScissorsGame:
         self.last_reaction_ms = None
 
         # Toast
-        self.toast_text, self.toast_color, self.toast_expiry = "", GREEN, 0.0
+        self.toast_text, self.toast_color, self.toast_expiry = "", ACID, 0.0
 
         # Telemetry: แยกไฟล์ตามผู้เล่น data/players/<ชื่อ>.csv
         self.player_name = canonical_name(self.player_name)
@@ -128,7 +128,7 @@ class RockPaperScissorsGame:
         self.boss_index = index
         self.boss = self.make_boss(index)
         self.sound.change_boss()
-        self.show_toast(t("toast.switched", name=short_boss_name(self.boss.name)[:40]), color=ACCENT)
+        self.show_toast(t("toast.switched", name=short_boss_name(self.boss.name)[:40]), color=INK)
         print(t("log.switched", name=self.boss.name))
 
     # ------------------------------------------------------------------
@@ -146,7 +146,7 @@ class RockPaperScissorsGame:
     # ------------------------------------------------------------------
     #  เครื่องมือ UI
     # ------------------------------------------------------------------
-    def show_toast(self, text, color=GREEN, duration=3.0):
+    def show_toast(self, text, color=ACID, duration=3.0):
         self.toast_text, self.toast_color, self.toast_expiry = text, color, time.time() + duration
 
     def export_current_boss(self):
@@ -165,18 +165,18 @@ class RockPaperScissorsGame:
     def import_saved_boss(self):
         models = list_saved_models("models")
         if not models:
-            self.show_toast(t("toast.no_models"), color=AMBER)
+            self.show_toast(t("toast.no_models"), color=EMBER)
             return
         selected = models[self.saved_model_cycle_idx % len(models)]
         self.saved_model_cycle_idx += 1
         try:
             self.boss = load_boss_model(selected["filepath"])
             name = getattr(self.boss, "name", selected.get("filename", "Custom Bot"))
-            self.show_toast(t("toast.loaded_cycle", name=short_boss_name(name)[:34]), color=ACCENT)
+            self.show_toast(t("toast.loaded_cycle", name=short_boss_name(name)[:34]), color=INK)
             self.sound.change_boss()
             print(f"[Import Model] {selected['filepath']}")
         except Exception as e:
-            self.show_toast(t("toast.load_fail", e=e), color=RED)
+            self.show_toast(t("toast.load_fail", e=e), color=ERROR)
 
     def cycle_speed(self):
         try:
@@ -185,7 +185,7 @@ class RockPaperScissorsGame:
             nxt = 0
         self.countdown_duration = self.speed_presets[nxt]
         self.result_duration = max(1.2, round(self.countdown_duration * 0.7, 1))
-        self.show_toast(t("toast.speed", s=f"{self.countdown_duration:.1f}"), color=AMBER)
+        self.show_toast(t("toast.speed", s=f"{self.countdown_duration:.1f}"), color=EMBER)
 
     def reset_score(self):
         self.opp_history, self.recent_results = [], []
@@ -194,7 +194,7 @@ class RockPaperScissorsGame:
         self.boss = self.make_boss(self.boss_index)
         self.cancel_round()
         self.sound.shoot()
-        self.show_toast(t("toast.reset"), color=ACCENT)
+        self.show_toast(t("toast.reset"), color=INK)
 
     def new_player(self):
         """ปุ่ม N: คนใหม่มาเล่นต่อ — สรุปผลคนเก่า, ตั้งชื่อ visitor อัตโนมัติ, ล้างความจำบอส, แยกไฟล์ข้อมูลใหม่"""
@@ -205,7 +205,7 @@ class RockPaperScissorsGame:
         self.player_name = next_visitor_name()
         self.telemetry_path = player_file(self.player_name)
         self.reset_score()
-        self.show_toast(t("toast.new_player", name=self.player_name), color=GREEN, duration=4.0)
+        self.show_toast(t("toast.new_player", name=self.player_name), color=ACID, duration=4.0)
         print(t("log.new_player", name=self.player_name, path=self.telemetry_path))
 
     def init_camera(self):
@@ -349,7 +349,7 @@ class RockPaperScissorsGame:
         cv2.namedWindow(window, cv2.WINDOW_NORMAL)
         print(t("log.ready"))
         if self.initial_model_toast:
-            self.show_toast(self.initial_model_toast, color=ACCENT, duration=4.0)
+            self.show_toast(self.initial_model_toast, color=INK, duration=4.0)
 
         while True:
             ok, frame = self.cap.read()
@@ -391,7 +391,7 @@ class RockPaperScissorsGame:
                         if self.run_move and self.run_move != self.carry_move:
                             lock = (now - self.run_start) / LOCK_SEC
                         waited = (now - self.ready_time) if self.ready_time else 0.0
-                        self.ui.draw_wait_gesture(frame, self.carry_move, waited, lock, self.repeat_progress)
+                        self.ui.draw_wait_gesture(frame, self.carry_move, waited, lock, self.repeat_progress, self.run_move)
                 if self.state == STATE_COUNTDOWN:
                     number, prog = self.update_countdown(raw_move, now)
                     if self.state == STATE_COUNTDOWN:
@@ -429,7 +429,8 @@ class RockPaperScissorsGame:
             if self.help_open:
                 self.ui.draw_help_overlay(frame)
             if now < self.toast_expiry:
-                self.ui.draw_toast_notification(frame, self.toast_text, color=self.toast_color)
+                self.ui.draw_toast_notification(frame, self.toast_text, color=self.toast_color,
+                                                remaining=self.toast_expiry - now)
 
             cv2.imshow(window, frame)
             if not self.handle_key(cv2.waitKey(1) & 0xFF):
@@ -462,6 +463,7 @@ class RockPaperScissorsGame:
         if key == 255:
             return True
         k = chr(key).lower() if key < 128 else ""
+        self.ui.press("SPACE" if k == " " else "Q" if key == 27 else k.upper())   # ปุ่มบนจอจมลงตาม
         if key == 27 or k == "q":
             return False
         if k == " ":
@@ -472,7 +474,7 @@ class RockPaperScissorsGame:
         elif k == "a":
             self.auto_mode = not self.auto_mode
             self.show_toast(t("toast.auto_on") if self.auto_mode else t("toast.auto_off"),
-                            color=GREEN if self.auto_mode else AMBER)
+                            color=ACID if self.auto_mode else EMBER)
             if self.auto_mode:
                 self.begin_round()
         elif k == "t":
@@ -500,7 +502,7 @@ class RockPaperScissorsGame:
             self.draw_landmarks = not self.draw_landmarks
         elif k == "e":
             toggle_lang()
-            self.show_toast(t("toast.lang"), color=ACCENT)
+            self.show_toast(t("toast.lang"), color=INK)
         return True
 
 
@@ -512,6 +514,7 @@ if __name__ == "__main__":
     parser.add_argument("--model", type=str, default=None, help="Path to model JSON (e.g. models/ds_champion_ken.json)")
     parser.add_argument("--auto", action="store_true", help="เริ่มในโหมดออโต้")
     parser.add_argument("--lang", choices=["th", "en"], default="th", help="Language / ภาษา (default th, press E in game to switch)")
+    parser.add_argument("--reduce-motion", action="store_true", help="ปิดแอนิเมชัน / turn off animations")
     args = parser.parse_args()
     set_lang(args.lang)
 
@@ -535,6 +538,7 @@ if __name__ == "__main__":
 
     game = RockPaperScissorsGame(camera_id=args.camera, countdown=args.countdown,
                                  player_name=player_name, model_path=model_path)
+    game.ui.motion = not args.reduce_motion
     if args.auto:
         game.auto_mode = True
         game.begin_round()
