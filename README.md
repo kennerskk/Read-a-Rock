@@ -46,6 +46,7 @@
 | **6** | **EnsembleBoss** | ขั้นสูง *(ค่าเริ่มต้น)* | รันโมเดล 2, 3, 4, 5 พร้อมกัน แล้วเลือกเชื่อโมเดลที่ทายถูกมากที่สุดในช่วงนั้น |
 | **7** | **QLearningBoss** | ขั้นสูง | Reinforcement Learning (Q-Learning): เรียนรู้ค่า $Q(s, a)$ จากผลรางวัลแพ้ (+1), เสมอ (0), ชนะ (-1) |
 | **8** | **MLPredictorBoss** | Data Science | สกัดฟีเจอร์ WSLS + Markov + Recency + Streak ปรับค่าน้ำหนักโมเดลแบบ Real-time |
+| **9** | **Lite Ensemble** | ขั้นสูง (ประหยัด) | Ensemble ที่ใช้แค่ 2-4 โมเดล ชุดที่ชนะ benchmark: N-gram + ML (2 ตัว), N-gram + Q-learning + ML (3 ตัว), Frequency + N-gram + Q-learning + ML (4 ตัว) — โหดกว่า Ensemble เดิม ~6.5 คะแนน Net Score (ดู [reports/ensemble_combos.md](reports/ensemble_combos.md)) กด 9 วนต่อได้ถึง **Warm start** (Population Prior + N-gram + ML: รู้จักนิสัยคนทั่วไปตั้งแต่ตาแรก — ยังไม่ดีกว่าอย่างมีนัยสำคัญ ดู [reports/warm_start.md](reports/warm_start.md)) |
 | **L** | **CustomSavedBoss** | พิเศษ | โหลดโมเดลที่เซฟไว้จากโฟลเดอร์ `models/` มาเป็นคู่ต่อสู้ |
 
 ---
@@ -135,6 +136,27 @@ python model_pipeline.py --mode train --input data/gameplay_telemetry.csv
 
 | ปุ่ม | คำสั่ง | รายละเอียด |
 |:---:|:---|:---|
+| `SPACE` | **เล่น 1 ตา** | เกมจะ **รอจนเห็นท่า** (ค้อน/กรรไกร/กระดาษ) ก่อน แล้วค่อยนับ 3-2-1 |
+| `A` | **โหมดออโต้** | เล่นต่อเนื่องโดยไม่ต้องลดมือ: เปลี่ยนท่า = ออกทันที, ค้างท่าเดิม ~0.8 วิ = ออกท่าเดิมซ้ำ |
+| `T` | **ความเร็วนับถอยหลัง** | 3s ➔ 2s ➔ 1.5s ➔ 1s |
+| `B` | **เลือกบอส** | เปิดรายชื่อบอสทั้ง 9 ตัว แล้วกดตัวเลข |
+| `1` - `8` | **เปลี่ยนบอส** | สลับบอสหมายเลข 1-8 ทันที |
+| `9` | **Lite Ensemble** | Ensemble แบบประหยัด (ชุดที่ชนะ benchmark) กดซ้ำเพื่อสลับ 2 ➔ 3 ➔ 4 โมเดล |
+| `S` / `L` | **บันทึก / โหลดโมเดล** | เซฟสมองบอสลง `models/` หรือโหลดกลับมาสู้ (กด L ซ้ำเพื่อเปลี่ยนไฟล์) |
+| `R` | **รีเซ็ต** | ล้างคะแนนและความจำบอส |
+| `M` | **เสียง** | เปิด/ปิดเสียงเอฟเฟกต์ |
+| `G` | **เส้นโครงมือ** | แสดง/ซ่อนจุด Landmark ของ MediaPipe |
+| `H` | **คู่มือปุ่ม** | แสดงปุ่มทั้งหมดบนจอ |
+| `Q` / `ESC` | **ออกจากเกม** | ปิดหน้าต่างและคืนกล้อง |
+
+### ⏱️ Reaction time ที่บันทึกลง `reaction_time_ms`
+- **เกมกล้อง:** เวลาตั้งแต่เริ่มตา จนกล้องเห็นท่าใหม่นิ่ง ≥ 0.15 วิ — ถ้าเปลี่ยนท่าระหว่างนับถอยหลัง จะนับถึงท่าสุดท้าย
+- ตาที่ "ค้างท่าเดิมไว้เพื่อออกซ้ำ" จะเว้นว่าง reaction time ไว้ (ผู้เล่นไม่ได้ขยับ จึงวัดไม่ได้)
+- บอสออกท่า (emoji บนการ์ดบอส) ตอนนับถึง "ออก!" และท่าผู้เล่นถูกล็อกในจังหวะเดียวกัน จึงเปลี่ยนตามบอสไม่ได้
+- **Fast mode:** เวลาตั้งแต่ขึ้นคำถามจนกด Enter
+- ข้อมูลเก่าก่อนการแก้ไขนี้ (`Guest` และแถวที่ค่าเป็น 500/1000/1500/3000 พอดี) **ไม่ใช่** reaction time จริง เป็นค่าความเร็วนับถอยหลังที่ตั้งไว้ / ค่าสุ่มจาก simulator
+
+---:|:---|:---|
 | `SPACE` | **เริ่มรอบใหม่** | เริ่มนับถอยหลัง 3.. 2.. 1.. เป่ายิ้งฉุบ! |
 | `A` | **เปิด/ปิดโหมดอัตโนมัติ (AUTO)** | เล่นต่อเนื่องเรื่อย ๆ โดยเว้นระยะพักหลังแต่ละรอบ |
 | `T` | **สลับความเร็วรอบ (Speed/Pace)** | ปรับเวลานับถอยหลังต่อตา (3s ➔ 2s ➔ 1.5s ➔ 1s) เพื่อเล่นให้ไวยิ่งขึ้น |
@@ -198,6 +220,15 @@ python model_pipeline.py --mode full
 
 # 5. ทดสอบประสิทธิภาพ Efficiency Score เทียบกับโมเดลสุ่ม
 python test_efficiency.py
+
+# 6. ทดสอบ Ensemble แบบ 2 / 3 / 4 โมเดล ทุกชุดค่าผสม (ผล: reports/ensemble_combos.md)
+python benchmark_ensemble_combos.py
+
+# 7. ใช้ได้กับคนใหม่ไหม? ทดสอบ Warm start แบบ Leave-One-Player-Out (ผล: reports/warm_start.md)
+python benchmark_warm_start.py
+
+# เริ่มเกมกล้องในโหมดออโต้ทันที
+python main_game.py --player Ken --auto
 ```
 
 ---
@@ -210,8 +241,10 @@ python test_efficiency.py
 - [model_io.py](model_io.py) — ระบบบันทึก (Save/Export) และโหลด (Load/Import) โมเดลพร้อม Model Card
 - [adaptive_arena.py](adaptive_arena.py) — โมเดล AI สมองบอส 8 รูปแบบ และระบบจำลองการแข่ง
 - [hand_detector.py](hand_detector.py) — โมเดล Vision ตรวจจับพิกัดมือ 21 จุดและแยกแยะนิ้วด้วย MediaPipe
-- [ui_renderer.py](ui_renderer.py) — ระบบวาด HUD แดชบอร์ด การ์ดผู้เล่น/บอส และ Toast แจ้งเตือนภาษาไทย
+- [ui_renderer.py](ui_renderer.py) — ระบบวาด HUD ภาษาไทย การ์ดผู้เล่น/บอส (บอสออกท่าเป็น emoji แบบมีแอนิเมชัน) และ Toast
 - [sound_effects.py](sound_effects.py) — ระบบเสียงเอฟเฟกต์แบบ Non-blocking (พร้อม Cross-platform fallback)
+- [benchmark_ensemble_combos.py](benchmark_ensemble_combos.py) — ทดสอบทุกชุด Ensemble 2/3/4 โมเดล หาชุดที่โหดสุดเทียบกับทรัพยากร
+- [benchmark_warm_start.py](benchmark_warm_start.py) — ทดสอบกับ "คนใหม่ที่ไม่เคยเห็นข้อมูล" (leave-one-player-out) และ Population Prior
 - [test_efficiency.py](test_efficiency.py) — คำนวณค่า Efficiency Score (%) เทียบกับ Nash Baseline
 - [evaluate_ai.py](evaluate_ai.py) — ทดสอบประสิทธิภาพ AI กับ Persona รูปแบบต่างๆ
 - `data/` — โฟลเดอร์เก็บข้อมูล Telemetry สดจากการเล่น (`gameplay_telemetry.csv`)

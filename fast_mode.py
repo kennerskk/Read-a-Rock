@@ -6,7 +6,8 @@
 #  - ปรับความเร็วเวลาต่อตาได้อิสระ (0 วิ = รู้ผลทันที, 0.5 วิ, 1.0 วิ, 2.0 วิ, 3.0 วิ)
 #  - บันทึกข้อมูล Telemetry ลง data/gameplay_telemetry.csv อัตโนมัติทุกตา
 #  - รองรับการบันทึกสมองบอส [S] และโหลดโมเดลกลับมาสู้ [L]
-#  - เลือกสลับบอส AI ได้ครบ 8 ตัว หรือโหลด Custom Model
+#  - เลือกสลับบอส AI ได้ครบ 9 ตัว (9 = Lite Ensemble) หรือโหลด Custom Model
+#  - reaction_time_ms = เวลาตั้งแต่ขึ้นคำถามจนกด Enter ท่า (วัดจริง)
 # =====================================================
 import os
 import sys
@@ -17,7 +18,7 @@ from datetime import datetime
 from collections import Counter
 from typing import Optional
 
-from adaptive_arena import BOSSES, judge, MOVES, BEATS, COUNTER
+from adaptive_arena import GAME_BOSSES as BOSSES, judge, MOVES, BEATS, COUNTER
 from sound_effects import SoundManager
 from model_io import save_boss_model, load_boss_model, list_saved_models
 
@@ -58,7 +59,7 @@ class FastArena:
                 writer = csv.writer(f)
                 writer.writerow(["timestamp", "round_id", "player_name", "player_move", "ai_move", "result", "reaction_time_ms"])
 
-    def log_telemetry(self, player_move: str, ai_move: str, result: str):
+    def log_telemetry(self, player_move: str, ai_move: str, result: str, reaction_ms: Optional[float] = None):
         """บันทึกข้อมูลเพื่อนำไปใช้เทรนใน Data Science Pipeline ต่อได้ทันที"""
         try:
             with open(self.telemetry_path, "a", newline="", encoding="utf-8") as f:
@@ -70,7 +71,7 @@ class FastArena:
                     player_move,
                     ai_move,
                     result,
-                    int(self.pace_sec * 1000)
+                    "" if reaction_ms is None else int(round(reaction_ms))
                 ])
         except Exception as e:
             print(f"[Telemetry Error] {e}")
@@ -150,7 +151,7 @@ class FastArena:
         except ValueError:
             print("❌ กรุณาใส่ตัวเลข")
 
-    def play_round(self, player_move: str):
+    def play_round(self, player_move: str, reaction_ms: Optional[float] = None):
         # 1. บอสตัดสินใจจากประวัติก่อนหน้านี้
         boss_move = self.boss.choose(self.opp_history)
 
@@ -191,7 +192,7 @@ class FastArena:
             tag = "เสมอ! 🤝"
 
         # 6. บันทึก Telemetry อัตโนมัติ
-        self.log_telemetry(player_move, boss_move, result)
+        self.log_telemetry(player_move, boss_move, result, reaction_ms)
 
         wr = (self.wins / self.round_no) * 100
         ai_wr = (self.losses / self.round_no) * 100
@@ -217,14 +218,16 @@ class FastArena:
         print("ปุ่มกดเลือกท่า:")
         print("  [1] ค้อน ✊   [2] กรรไกร ✌️   [3] กระดาษ ✋")
         print("ปุ่มจัดการ:")
-        print("  [u] เปลี่ยนชื่อผู้เล่น   [t] ปรับเวลาต่อตา    [b] สลับบอส (1-8)")
+        print("  [u] เปลี่ยนชื่อผู้เล่น   [t] ปรับเวลาต่อตา    [b] สลับบอส (1-9)")
         print("  [s] บันทึกโมเดล        [l] โหลดโมเดล        [m] เปิด/ปิดเสียง")
         print("  [r] รีเซ็ตคะแนน        [q] สรุปผลและเลิกเล่น\n")
 
         while True:
             prompt = f"[{self.player_name} | ตา {self.round_no + 1} | {self.pace_sec:.1f}s] ออกท่า (1/2/3): "
             try:
+                t_prompt = time.perf_counter()
                 cmd = input(prompt).strip().lower()
+                decision_ms = (time.perf_counter() - t_prompt) * 1000.0
             except (KeyboardInterrupt, EOFError):
                 break
 
@@ -241,8 +244,8 @@ class FastArena:
                 print("\nรายชื่อบอส:")
                 for i, b in enumerate(BOSSES, start=1):
                     print(f"  [{i}] {b.name}")
-                b_choice = input("เลือกหมายเลขบอส (1-8): ").strip()
-                if b_choice.isdigit() and 1 <= int(b_choice) <= 8:
+                b_choice = input(f"เลือกหมายเลขบอส (1-{len(BOSSES)}): ").strip()
+                if b_choice.isdigit() and 1 <= int(b_choice) <= len(BOSSES):
                     self.switch_boss(int(b_choice) - 1)
             elif cmd == "s":
                 self.save_current_model()
@@ -260,7 +263,7 @@ class FastArena:
                 self.boss = BOSSES[self.boss_idx]()
                 print("🔄 รีเซ็ตคะแนนและสมองบอสเรียบร้อย!")
             elif cmd in move_map:
-                self.play_round(move_map[cmd])
+                self.play_round(move_map[cmd], decision_ms)
             else:
                 print("⚠️ กด 1 (ค้อน), 2 (กรรไกร), 3 (กระดาษ) หรือกด 't' เพื่อปรับเวลา")
 
@@ -285,7 +288,7 @@ def parse_args():
     parser.add_argument("--player", type=str, default=None, help="ชื่อผู้เล่น (เช่น --player Ken)")
     parser.add_argument("--model", type=str, default=None, help="พาธไฟล์โมเดล JSON ที่ต้องการโหลด (เช่น models/ds_champion_ken.json)")
     parser.add_argument("--pace", type=float, default=0.5, help="เวลาต่อตาเป็นวินาที (เช่น 0 = ทันที, 0.5, 1.0, 3.0)")
-    parser.add_argument("--boss", type=int, default=6, help="หมายเลขบอสเริ่มต้น (1-8, ค่าเริ่มต้น 6=Ensemble)")
+    parser.add_argument("--boss", type=int, default=6, help="หมายเลขบอสเริ่มต้น (1-9, ค่าเริ่มต้น 6=Ensemble, 9=Lite Ensemble)")
     parser.add_argument("--no-sound", action="store_true", help="ปิดเสียงเอฟเฟกต์")
     return parser.parse_args()
 

@@ -90,6 +90,8 @@ def load_boss_model(filepath: str, boss_registry: Optional[Dict[str, Any]] = Non
         "EnsembleBoss": arena.EnsembleBoss,
         "QLearningBoss": arena.QLearningBoss,
     }
+    if hasattr(arena, "ComboEnsembleBoss"):
+        registry["ComboEnsembleBoss"] = arena.ComboEnsembleBoss
     if hasattr(arena, "MLPredictorBoss"):
         registry["MLPredictorBoss"] = arena.MLPredictorBoss
     if hasattr(arena, "CustomSavedBoss"):

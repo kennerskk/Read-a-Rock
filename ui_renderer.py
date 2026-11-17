@@ -1,292 +1,462 @@
 # =====================================================
-#  ui_renderer.py — วาด UI ภาษาไทยและ HUD แดชบอร์ดใน OpenCV
+#  ui_renderer.py — วาด HUD ภาษาไทยบนภาพกล้อง (OpenCV + PIL)
+#
+#  หลักการออกแบบ:
+#   - แต่ละสถานะของเกมมีข้อความกลางจอเพียงข้อความเดียว บอกว่า "ต้องทำอะไรต่อ"
+#   - ใช้สีสื่อความหมายคงที่: เขียว = ชนะ, แดง = แพ้, เหลือง = เสมอ, ฟ้า = ข้อมูล/บอส
+#   - ไม่ใช้ emoji (ฟอนต์ไทยใน Windows วาด emoji ไม่ได้ จะขึ้นเป็นกล่องสี่เหลี่ยม)
+#   - วาดตัวอักษรเฉพาะบริเวณที่จำเป็น (ROI) ไม่แปลงภาพทั้งเฟรม -> เร็วขึ้นมาก
 # =====================================================
 import os
+import re
 import cv2
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
+# สี (B, G, R)
+WHITE = (245, 245, 245)
+INK2 = (190, 196, 206)        # ข้อความรอง
+MUTED = (135, 142, 152)       # ข้อความจาง
+PANEL = (22, 24, 30)
+PANEL_LINE = (70, 76, 88)
+ACCENT = (240, 190, 40)       # ฟ้า (ข้อมูล / บอส)
+GREEN = (110, 210, 60)
+RED = (70, 80, 235)
+AMBER = (40, 190, 245)
+
+MOVE_COLOR = {
+    "ค้อน": (60, 150, 245),     # ส้ม
+    "กรรไกร": (235, 150, 60),   # ฟ้า
+    "กระดาษ": (120, 210, 90),   # เขียว
+}
+EMOJI = {"ค้อน": "✊", "กรรไกร": "✌", "กระดาษ": "✋"}
+RESULT_STYLE = {
+    "win":  ("คุณชนะ!", GREEN),
+    "lose": ("บอสชนะ", RED),
+    "draw": ("เสมอ", AMBER),
+}
+
+
+def short_boss_name(name: str) -> str:
+    """ '6. Ensemble/Meta (เลือก...)' -> 'Ensemble/Meta' """
+    s = re.sub(r"^\s*\d+\.\s*", "", str(name))
+    if not s.startswith("Lite Ensemble") or "+" not in s:
+        s = s.split(" (")[0].strip()
+    return s or str(name)
+
 
 class UIRenderer:
     def __init__(self):
-        # ค้นหาฟอนต์ที่รองรับภาษาไทยในระบบต่างๆ (Windows, Linux, macOS)
-        font_candidates = [
-            "C:/Windows/Fonts/leelawad.ttf",
-            "C:/Windows/Fonts/tahoma.ttf",
-            "C:/Windows/Fonts/arial.ttf",
-            "/System/Library/Fonts/Supplemental/Thonburi.ttc",
-            "/Library/Fonts/Arial Unicode.ttf",
-            "/usr/share/fonts/truetype/thai/Garuda.ttf",
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
-        ]
-        self.font_path = None
-        for fc in font_candidates:
-            if os.path.exists(fc):
-                self.font_path = fc
-                break
-
-        # แคชฟอนต์ขนาดต่างๆ เพื่อประสิทธิภาพสูงสุด
+        regular = ["C:/Windows/Fonts/LeelawUI.ttf", "C:/Windows/Fonts/leelawad.ttf",
+                   "C:/Windows/Fonts/tahoma.ttf",
+                   "/System/Library/Fonts/Supplemental/Thonburi.ttc",
+                   "/usr/share/fonts/truetype/thai/Garuda.ttf",
+                   "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"]
+        bold = ["C:/Windows/Fonts/LeelaUIb.ttf", "C:/Windows/Fonts/leelawdb.ttf",
+                "C:/Windows/Fonts/tahomabd.ttf",
+                "/usr/share/fonts/truetype/thai/Garuda-Bold.ttf"]
+        self.font_path = next((f for f in regular if os.path.exists(f)), None)
+        self.bold_path = next((f for f in bold if os.path.exists(f)), self.font_path)
+        emoji = ["C:/Windows/Fonts/seguiemj.ttf", "/System/Library/Fonts/Apple Color Emoji.ttc",
+                 "/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf"]
+        self.emoji_path = next((f for f in emoji if os.path.exists(f)), None)
         self._font_cache = {}
 
-    def get_font(self, size):
-        if size not in self._font_cache:
+    # ------------------------------------------------------------------
+    #  พื้นฐาน
+    # ------------------------------------------------------------------
+    def get_font(self, size, bold=False):
+        key = (size, bold)
+        if key not in self._font_cache:
+            path = self.bold_path if bold else self.font_path
             try:
-                if self.font_path:
-                    self._font_cache[size] = ImageFont.truetype(self.font_path, size)
-                else:
-                    self._font_cache[size] = ImageFont.load_default()
+                self._font_cache[key] = ImageFont.truetype(path, size) if path else ImageFont.load_default()
             except Exception:
-                self._font_cache[size] = ImageFont.load_default()
-        return self._font_cache[size]
+                self._font_cache[key] = ImageFont.load_default()
+        return self._font_cache[key]
 
-    def draw_thai_text(self, img, text, pos, font_size=22, color=(255, 255, 255), shadow=True, shadow_color=(0, 0, 0)):
-        """
-        วาดข้อความภาษาไทยลงบนภาพ OpenCV (BGR)
-        pos: (x, y)
-        color: (B, G, R)
-        """
-        # แปลง BGR เป็น RGB สำหรับ PIL
-        img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        pil_img = Image.fromarray(img_rgb)
-        draw = ImageDraw.Draw(pil_img)
-        font = self.get_font(font_size)
+    def text_width(self, text, size, bold=False):
+        l, _, r, _ = self.get_font(size, bold).getbbox(text, anchor="la")
+        return r - l
 
-        x, y = pos
-        # วาดเงาเพื่อให้อ่านง่าย
+    def fit(self, text, size, max_w, bold=False):
+        """ตัดข้อความให้พอดีความกว้าง max_w พิกเซล (เติม ...)"""
+        if self.text_width(text, size, bold) <= max_w:
+            return text
+        while text and self.text_width(text + "...", size, bold) > max_w:
+            text = text[:-1]
+        return text.rstrip() + "..."
+
+    def text(self, img, text, pos, size=20, color=WHITE, bold=False, align="l", shadow=True):
+        """วาดข้อความ (รองรับไทย) โดยแปลงเฉพาะพื้นที่ข้อความ  pos=(x, y บนสุดของบรรทัด)
+        align: 'l' ซ้าย, 'c' กึ่งกลางที่ x, 'r' ชิดขวาที่ x  คืนค่าความกว้างข้อความ"""
+        if not text:
+            return 0
+        font = self.get_font(size, bold)
+        l, t, r, b = font.getbbox(text, anchor="la")
+        w = r - l
+        x, y = int(pos[0]), int(pos[1])
+        if align == "c":
+            x -= w // 2
+        elif align == "r":
+            x -= w
+        pad = 4
+        ih, iw = img.shape[:2]
+        x0, y0 = max(0, x + l - pad), max(0, y + t - pad)
+        x1, y1 = min(iw, x + r + pad + 2), min(ih, y + b + pad + 2)
+        if x1 <= x0 or y1 <= y0:
+            return w
+        roi = img[y0:y1, x0:x1]
+        pil = Image.fromarray(cv2.cvtColor(roi, cv2.COLOR_BGR2RGB))
+        d = ImageDraw.Draw(pil)
+        ox, oy = x - x0, y - y0
         if shadow:
-            s_rgb = (shadow_color[2], shadow_color[1], shadow_color[0])
-            draw.text((x + 1, y + 1), text, font=font, fill=s_rgb)
-            draw.text((x + 2, y + 2), text, font=font, fill=s_rgb)
+            d.text((ox + 1, oy + 1), text, font=font, fill=(0, 0, 0), anchor="la")
+        d.text((ox, oy), text, font=font, fill=(color[2], color[1], color[0]), anchor="la")
+        img[y0:y1, x0:x1] = cv2.cvtColor(np.asarray(pil), cv2.COLOR_RGB2BGR)
+        return w
 
-        c_rgb = (color[2], color[1], color[0])
-        draw.text((x, y), text, font=font, fill=c_rgb)
-
-        # แปลงกลับเป็น OpenCV BGR
-        res_bgr = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
-        np.copyto(img, res_bgr)
+    # ชื่อเดิม (เผื่อสคริปต์อื่นเรียกใช้)
+    def draw_thai_text(self, img, text, pos, font_size=22, color=WHITE, shadow=True, shadow_color=(0, 0, 0)):
+        self.text(img, text, pos, size=font_size, color=color, shadow=shadow)
         return img
 
-    def draw_panel(self, img, x, y, w, h, bg_color=(20, 24, 32), alpha=0.75, border_color=(0, 200, 255), border_thickness=2):
-        """
-        วาดกล่องโปร่งแสงพร้อมขอบสีสันสวยงาม
-        """
-        ih, iw, _ = img.shape
-        x1, y1 = max(0, x), max(0, y)
-        x2, y2 = min(iw, x + w), min(ih, y + h)
-
+    def panel(self, img, x, y, w, h, bg=PANEL, alpha=0.82, border=PANEL_LINE, thickness=1):
+        ih, iw = img.shape[:2]
+        x1, y1 = max(0, int(x)), max(0, int(y))
+        x2, y2 = min(iw, int(x + w)), min(ih, int(y + h))
         if x2 <= x1 or y2 <= y1:
-            return img
+            return
+        sub = img[y1:y2, x1:x2]
+        img[y1:y2, x1:x2] = cv2.addWeighted(sub, 1.0 - alpha, np.full_like(sub, bg), alpha, 0)
+        if border is not None and thickness > 0:
+            cv2.rectangle(img, (x1, y1), (x2 - 1, y2 - 1), border, thickness, cv2.LINE_AA)
 
-        sub_img = img[y1:y2, x1:x2]
-        color_rect = np.full(sub_img.shape, bg_color, dtype=np.uint8)
-        blended = cv2.addWeighted(sub_img, 1.0 - alpha, color_rect, alpha, 0)
-        img[y1:y2, x1:x2] = blended
-
-        if border_color and border_thickness > 0:
-            cv2.rectangle(img, (x1, y1), (x2, y2), border_color, border_thickness)
-
+    def draw_panel(self, img, x, y, w, h, bg_color=PANEL, alpha=0.82, border_color=PANEL_LINE, border_thickness=1):
+        self.panel(img, x, y, w, h, bg_color, alpha, border_color, border_thickness)
         return img
 
-    def draw_badge(self, img, text, pos, bg_color=(40, 44, 52), text_color=(255, 255, 255), font_size=18, padding=6):
-        """วาด Badge ข้อความพร้อมพื้นหลัง"""
-        x, y = pos
-        font = self.get_font(font_size)
-        bbox = font.getbbox(text)
-        tw = bbox[2] - bbox[0]
-        th = bbox[3] - bbox[1]
+    def chip(self, img, text, x, y, color, size=16, filled=False):
+        """ป้ายสถานะเล็ก ๆ คืนค่าพิกัด x ขอบขวา"""
+        w = self.text_width(text, size, bold=True) + 20
+        h = size + 14
+        self.panel(img, x, y, w, h, bg=color if filled else PANEL, alpha=0.9 if filled else 0.8,
+                   border=color, thickness=1)
+        self.text(img, text, (x + 10, y + 5), size=size, bold=True,
+                  color=(20, 20, 20) if filled else color, shadow=False)
+        return x + w
 
-        bx1, by1 = x, y
-        bx2, by2 = x + tw + padding * 2, y + th + padding * 2
-        self.draw_panel(img, bx1, by1, bx2 - bx1, by2 - by1, bg_color=bg_color, alpha=0.85, border_color=None)
-        self.draw_thai_text(img, text, (x + padding, y + padding - 2), font_size=font_size, color=text_color, shadow=False)
-        return bx2
+    def keycap(self, img, key, label, x, y, size=15):
+        """ปุ่มคีย์บอร์ด + คำอธิบาย คืนค่าพิกัด x ถัดไป"""
+        kw = max(26, self.text_width(key, size, bold=True) + 14)
+        kh = size + 12
+        self.panel(img, x, y, kw, kh, bg=(60, 64, 74), alpha=0.95, border=(120, 126, 138))
+        self.text(img, key, (x + kw // 2, y + 4), size=size, bold=True, align="c", shadow=False)
+        lw = self.text(img, label, (x + kw + 7, y + 4), size=size, color=INK2, shadow=False)
+        return x + kw + 7 + lw + 18
 
-    def draw_header_scoreboard(self, img, round_no, wins, losses, draws, winrate, boss_name, auto_mode=False, sound_on=True):
-        """แถบสถานะด้านบน: ข้อมูลบอส และ คะแนนแพ้ชนะ"""
+    # ------------------------------------------------------------------
+    #  แถบบน: คะแนน + บอส + สถานะ
+    # ------------------------------------------------------------------
+    def draw_top_bar(self, img, round_no, wins, losses, draws, boss_name, auto_mode,
+                     sound_on, countdown_sec, recent_results):
         w = img.shape[1]
-        self.draw_panel(img, 10, 10, w - 20, 68, bg_color=(15, 18, 24), alpha=0.85, border_color=(70, 80, 95), border_thickness=1)
+        self.panel(img, 0, 0, w, 66, alpha=0.86, border=None)
+        cv2.line(img, (0, 66), (w, 66), PANEL_LINE, 1)
 
-        # บอสที่กำลังเจอ
-        self.draw_thai_text(img, f"🤖 บอส AI: {boss_name}", (25, 18), font_size=20, color=(0, 220, 255))
-
-        # คะแนน
-        stats_text = f"ตาที่ {round_no}  |  ชนะ: {wins}  แพ้: {losses}  เสมอ: {draws}  |  Winrate: {winrate:.1f}%"
-        self.draw_thai_text(img, stats_text, (25, 46), font_size=16, color=(240, 240, 240))
-
-        # Badge โหมดอัตโนมัติและเสียง
-        auto_text = "AUTO: ON" if auto_mode else "AUTO: OFF"
-        auto_color = (50, 220, 100) if auto_mode else (140, 140, 140)
-        self.draw_badge(img, auto_text, (w - 230, 24), bg_color=(25, 30, 38), text_color=auto_color, font_size=16)
-
-        sound_text = "SOUND: ON" if sound_on else "MUTED"
-        sound_color = (0, 200, 255) if sound_on else (120, 120, 120)
-        self.draw_badge(img, sound_text, (w - 120, 24), bg_color=(25, 30, 38), text_color=sound_color, font_size=16)
-
-    def draw_player_card(self, img, detected_gesture, total_fingers, is_live=True, player_name="ผู้เล่น"):
-        """การ์ดแสดงท่าที่ตรวจจับได้ของผู้เล่นแบบ Real-time"""
-        h = img.shape[0]
-        card_w = 310
-        card_h = 100
+        # ซ้าย: ตาที่ + คะแนน
+        self.text(img, f"ตาที่ {round_no}", (20, 8), size=15, color=MUTED)
         x = 20
-        y = h - card_h - 60
+        for label, val, col in (("ชนะ", wins, GREEN), ("เสมอ", draws, AMBER), ("แพ้", losses, RED)):
+            x += self.text(img, f"{label} ", (x, 28), size=19, color=INK2)
+            x += self.text(img, str(val), (x, 26), size=22, bold=True, color=col) + 20
+        if round_no:
+            self.text(img, f"คุณชนะ {wins / round_no * 100:.0f}%", (x, 30), size=16, color=MUTED)
 
-        # เลือกสีตามท่า
-        color_map = {
-            "ค้อน": (0, 165, 255),    # สีส้มทอง
-            "กรรไกร": (255, 120, 0),  # สีฟ้าคราม
-            "กระดาษ": (0, 255, 128),  # สีเขียวสด
-            "รอท่า...": (150, 150, 150)
-        }
-        b_color = color_map.get(detected_gesture, (150, 150, 150))
+        # กลาง: บอส
+        cx = w // 2
+        self.text(img, "คู่ต่อสู้", (cx, 8), size=14, color=MUTED, align="c")
+        self.text(img, short_boss_name(boss_name)[:34], (cx, 27), size=21, bold=True, color=ACCENT, align="c")
 
-        self.draw_panel(img, x, y, card_w, card_h, bg_color=(18, 22, 30), alpha=0.85, border_color=b_color, border_thickness=2)
+        # ขวา: สถานะ
+        chips = [
+            (f"{countdown_sec:.1f} วิ", INK2, False),
+            ("เสียง" if sound_on else "ปิดเสียง", INK2 if sound_on else MUTED, False),
+            ("AUTO", GREEN, True) if auto_mode else ("AUTO ปิด", MUTED, False),
+        ]
+        widths = [self.text_width(t, 15, True) + 20 for t, _, _ in chips]
+        x = w - 20 - sum(widths) - 8 * (len(chips) - 1)
+        for (t, c, f), cw in zip(chips, widths):
+            self.chip(img, t, x, 18, c, size=15, filled=f)
+            x += cw + 8
 
-        icon_map = {"ค้อน": "✊", "กรรไกร": "✌️", "กระดาษ": "✋", "รอท่า...": "❓"}
-        icon = icon_map.get(detected_gesture, "❓")
+        # ผล 12 ตาล่าสุด (สี่เหลี่ยมเล็กใต้แถบ)
+        if recent_results:
+            x = 20
+            self.text(img, "ล่าสุด", (x, 74), size=14, color=INK2)
+            x += 48
+            for r in recent_results[-12:]:
+                col = {"win": GREEN, "lose": RED, "draw": AMBER}.get(r, MUTED)
+                cv2.rectangle(img, (x, 79), (x + 13, 92), col, -1, cv2.LINE_AA)
+                x += 18
 
-        self.draw_thai_text(img, f"👤 ผู้เล่น [{player_name}]:", (x + 14, y + 12), font_size=15, color=(180, 190, 205))
-        self.draw_thai_text(img, f"{icon} {detected_gesture}", (x + 14, y + 36), font_size=28, color=b_color)
-        self.draw_thai_text(img, f"นิ้วที่กาง: {total_fingers} นิ้ว (0=ค้อน, 2=กรรไกร, 5=กระดาษ)", (x + 14, y + 74), font_size=13, color=(160, 170, 185))
+    # ------------------------------------------------------------------
+    #  การ์ดผู้เล่น / บอส (ล่างซ้าย / ล่างขวา)
+    # ------------------------------------------------------------------
+    def draw_player_card(self, img, gesture, fingers, hand_visible, player_name="ผู้เล่น", locked=False):
+        h = img.shape[0]
+        cw, ch = 330, 128
+        x, y = 20, h - ch - 62
+        col = MOVE_COLOR.get(gesture, MUTED)
+        self.panel(img, x, y, cw, ch, border=col if gesture in MOVE_COLOR else PANEL_LINE,
+                   thickness=2 if gesture in MOVE_COLOR else 1)
+        self.text(img, f"คุณ  ·  {player_name}", (x + 16, y + 10), size=15, color=INK2)
 
-    def draw_boss_card(self, img, boss_move, boss_desc=""):
-        """การ์ดแสดงท่าของ AI บอส"""
+        # ไฟสถานะกล้องเห็นมือ
+        dot = GREEN if hand_visible else RED
+        cv2.circle(img, (x + cw - 22, y + 20), 6, dot, -1, cv2.LINE_AA)
+        self.text(img, "เห็นมือ" if hand_visible else "ไม่เห็นมือ", (x + cw - 34, y + 10), size=13,
+                  color=dot, align="r")
+
+        if gesture in MOVE_COLOR:
+            self.text(img, gesture, (x + 16, y + 34), size=40, bold=True, color=col)
+            if locked:
+                self.chip(img, "ล็อกแล้ว", x + cw - 108, y + 48, GREEN, size=14, filled=True)
+        else:
+            self.text(img, "ยังไม่เห็นท่า", (x + 16, y + 44), size=26, color=MUTED)
+
+        # นิ้วที่กาง (5 จุด)
+        self.text(img, "นิ้วที่กาง", (x + 16, y + 98), size=13, color=MUTED)
+        for i in range(5):
+            cxp = x + 96 + i * 22
+            on = hand_visible and i < fingers
+            cv2.circle(img, (cxp, y + 107), 7, col if on else (70, 74, 82), -1 if on else 1, cv2.LINE_AA)
+
+    # ------------------------------------------------------------------
+    #  Emoji มือของบอส (Segoe UI Emoji สี) — วาดครั้งเดียวแล้วเก็บเป็น sprite
+    # ------------------------------------------------------------------
+    def _emoji_sprite(self, move, size):
+        key = ("emoji", move, size)
+        if key in self._font_cache:
+            return self._font_cache[key]
+        sprite = None
+        if self.emoji_path:
+            try:
+                font = ImageFont.truetype(self.emoji_path, size)
+                ch = EMOJI.get(move, EMOJI["ค้อน"])
+                canvas = Image.new("RGBA", (size * 2, size * 2), (0, 0, 0, 0))
+                ImageDraw.Draw(canvas).text((size // 4, size // 4), ch, font=font, embedded_color=True)
+                bbox = canvas.getbbox()
+                if bbox:
+                    rgba = np.asarray(canvas.crop(bbox))
+                    sprite = cv2.cvtColor(rgba, cv2.COLOR_RGBA2BGRA)
+            except Exception:
+                sprite = None
+        self._font_cache[key] = sprite
+        return sprite
+
+    def blit_emoji(self, img, move, cx, cy, size=110, scale=1.0, alpha=1.0):
+        """วาด emoji ท่ามือ ให้จุดกึ่งกลางอยู่ที่ (cx, cy) คืนค่า False ถ้าไม่มีฟอนต์ emoji"""
+        sprite = self._emoji_sprite(move, size)
+        if sprite is None:
+            return False
+        if abs(scale - 1.0) > 1e-3:
+            sprite = cv2.resize(sprite, None, fx=scale, fy=scale, interpolation=cv2.INTER_LINEAR)
+        sh, sw = sprite.shape[:2]
+        x0, y0 = int(cx - sw / 2), int(cy - sh / 2)
+        ih, iw = img.shape[:2]
+        ax0, ay0, ax1, ay1 = max(0, x0), max(0, y0), min(iw, x0 + sw), min(ih, y0 + sh)
+        if ax1 <= ax0 or ay1 <= ay0:
+            return True
+        spr = sprite[ay0 - y0:ay1 - y0, ax0 - x0:ax1 - x0]
+        a = (spr[:, :, 3:4].astype(np.float32) / 255.0) * alpha
+        roi = img[ay0:ay1, ax0:ax1].astype(np.float32)
+        img[ay0:ay1, ax0:ax1] = (spr[:, :, :3] * a + roi * (1 - a)).astype(np.uint8)
+        return True
+
+    def draw_boss_card(self, img, boss_move, boss_desc="", mode="idle", anim_t=0.0):
+        """
+        การ์ดบอส พร้อม emoji มือที่ "ออกท่าจริง"
+        mode: 'idle'   = รอผู้เล่น (กำมือนิ่ง ๆ)
+              'pump'   = กำลังนับถอยหลัง (กำมือเขย่าขึ้นลงตามจังหวะ 3-2-1)  anim_t = progress 0..1
+              'reveal' = ออกท่าแล้ว (ขยายเด้งขึ้นมา)  anim_t = วินาทีตั้งแต่ออกท่า
+        """
         w, h = img.shape[1], img.shape[0]
-        card_w = 310
-        card_h = 100
-        x = w - card_w - 20
-        y = h - card_h - 60
+        cw, ch = 330, 190
+        x, y = w - cw - 20, h - ch - 62
+        reveal = mode == "reveal" and boss_move in MOVE_COLOR
+        col = MOVE_COLOR[boss_move] if reveal else ACCENT
+        self.panel(img, x, y, cw, ch, border=col, thickness=2 if reveal else 1)
+        self.text(img, "บอส AI", (x + 16, y + 10), size=15, color=INK2)
 
-        color_map = {
-            "ค้อน": (0, 165, 255),
-            "กรรไกร": (255, 120, 0),
-            "กระดาษ": (0, 255, 128),
-            "-": (120, 120, 120)
-        }
-        b_color = color_map.get(boss_move, (120, 120, 120))
-
-        self.draw_panel(img, x, y, card_w, card_h, bg_color=(18, 22, 30), alpha=0.85, border_color=b_color, border_thickness=2)
-
-        icon_map = {"ค้อน": "✊", "กรรไกร": "✌️", "กระดาษ": "✋", "-": "🎲"}
-        icon = icon_map.get(boss_move, "🎲")
-
-        self.draw_thai_text(img, "🤖 AI บอส (Adaptive Arena):", (x + 14, y + 12), font_size=15, color=(180, 190, 205))
-        if boss_move == "-":
-            self.draw_thai_text(img, "กำลังคิดคำนวณ...", (x + 14, y + 38), font_size=22, color=(140, 150, 165))
+        ex, ey = x + 92, y + 98
+        if reveal:
+            t = anim_t
+            if t < 0.12:
+                scale = 0.55 + 0.65 * t / 0.12
+            elif t < 0.26:
+                scale = 1.2 - 0.2 * (t - 0.12) / 0.14
+            else:
+                scale = 1.0
+            drawn = self.blit_emoji(img, boss_move, ex, ey, 104, scale)
+            self.text(img, boss_move, (x + 182, y + 70), size=34, bold=True, color=col)
+            if not drawn:
+                self.text(img, "ออกท่าแล้ว", (x + 16, y + 80), size=20, color=col)
         else:
-            self.draw_thai_text(img, f"{icon} {boss_move}", (x + 14, y + 36), font_size=28, color=b_color)
-            self.draw_thai_text(img, f"กลยุทธ์: {boss_desc[:28]}...", (x + 14, y + 74), font_size=13, color=(160, 170, 185))
+            if mode == "pump":
+                bob = -abs(np.sin(min(1.0, anim_t) * 3 * np.pi)) * 26     # เขย่ามือ 3 จังหวะ
+                drawn = self.blit_emoji(img, "ค้อน", ex, ey + 10 + bob, 104, 0.92)
+                label, lcol = "เป่า... ยิ้ง... ฉุบ!", WHITE
+            else:
+                drawn = self.blit_emoji(img, "ค้อน", ex, ey + 10, 104, 0.92, alpha=0.55)
+                label, lcol = "รอคุณออกท่า", MUTED
+            self.text(img, label, (x + 172, y + 82), size=18, color=lcol)
+            if not drawn:
+                self.text(img, "ซ่อนท่าอยู่...", (x + 16, y + 80), size=24, color=MUTED)
+        self.text(img, self.fit(boss_desc, 12, cw - 32), (x + 16, y + ch - 28), size=12, color=MUTED)
 
-    def draw_countdown(self, img, count_val):
-        """แสดงเวลานับถอยหลัง 3.. 2.. 1.. เป่ายิ้งฉุบ! กลางหน้าจอ"""
-        h, w, _ = img.shape
-        cx, cy = w // 2, h // 2
-
-        # วงกลม/กล่องตรงกลาง
-        box_w, box_h = 280, 140
-        bx = cx - box_w // 2
-        by = cy - box_h // 2 - 20
-
-        color_stage = {
-            "3": (0, 220, 255),    # เหลืองทอง
-            "2": (0, 160, 255),    # ส้ม
-            "1": (50, 80, 255),    # แดงส้ม
-            "เป่ายิ้งฉุบ!": (0, 255, 100) # เขียวสด
-        }
-        color = color_stage.get(count_val, (255, 255, 255))
-
-        self.draw_panel(img, bx, by, box_w, box_h, bg_color=(10, 12, 16), alpha=0.9, border_color=color, border_thickness=3)
-
-        if count_val == "เป่ายิ้งฉุบ!":
-            self.draw_thai_text(img, count_val, (bx + 26, by + 42), font_size=42, color=color)
-        else:
-            self.draw_thai_text(img, f"เตรียมตัว...", (bx + 75, by + 18), font_size=20, color=(180, 190, 205))
-            self.draw_thai_text(img, count_val, (cx - 24, by + 46), font_size=64, color=color)
-
-    def draw_result_banner(self, img, result, player_move, boss_move):
-        """แบนเนอร์แสดงผลลัพธ์รอบล่าสุดแบบสะดุดตา"""
-        h, w, _ = img.shape
-        cx, cy = w // 2, h // 2
-
-        banner_w = 460
-        banner_h = 160
-        bx = cx - banner_w // 2
-        by = cy - banner_h // 2 - 20
-
-        if result == "win":
-            title = "🎉 คุณชนะ! (You Win!)"
-            t_color = (0, 255, 100)
-            bg_border = (0, 255, 120)
-        elif result == "lose":
-            title = "❌ คุณแพ้! (AI Wins!)"
-            t_color = (60, 80, 255)
-            bg_border = (50, 70, 240)
-        else:
-            title = "🤝 เสมอ! (Draw!)"
-            t_color = (0, 220, 255)
-            bg_border = (0, 200, 240)
-
-        self.draw_panel(img, bx, by, banner_w, banner_h, bg_color=(12, 14, 20), alpha=0.92, border_color=bg_border, border_thickness=3)
-        self.draw_thai_text(img, title, (bx + 75, by + 20), font_size=32, color=t_color)
-
-        vs_text = f"คุณออก: {player_move}   ⚡   บอสออก: {boss_move}"
-        self.draw_thai_text(img, vs_text, (bx + 55, by + 74), font_size=22, color=(240, 240, 240))
-        self.draw_thai_text(img, "กด [SPACE] เล่นตาถัดไป หรือรอเล่นอัตโนมัติ", (bx + 85, by + 118), font_size=15, color=(170, 180, 195))
+    # ------------------------------------------------------------------
+    #  ข้อความกลางจอตามสถานะ
+    # ------------------------------------------------------------------
+    def _center_box(self, img, w, h, border, dy=0):
+        ih, iw = img.shape[:2]
+        x, y = (iw - w) // 2, (ih - h) // 2 - 30 + dy
+        self.panel(img, x, y, w, h, alpha=0.88, border=border, thickness=2)
+        return x, y
 
     def draw_idle_prompt(self, img):
-        """ข้อความแนะนำเมื่อรอให้ผู้เล่นกดเริ่มเล่น"""
-        h, w, _ = img.shape
-        cx = w // 2
-        prompt_w = 460
-        prompt_h = 50
-        px = cx - prompt_w // 2
-        py = h // 2 - 25
+        x, y = self._center_box(img, 520, 110, ACCENT)
+        cx = x + 260
+        self.text(img, "พร้อมเล่นแล้ว", (cx, y + 14), size=28, bold=True, color=WHITE, align="c")
+        self.text(img, "กด SPACE เล่น 1 ตา   ·   กด A เล่นต่อเนื่อง", (cx, y + 62), size=18, color=INK2, align="c")
 
-        self.draw_panel(img, px, py, prompt_w, prompt_h, bg_color=(15, 18, 25), alpha=0.85, border_color=(0, 200, 255), border_thickness=1)
-        self.draw_thai_text(img, "🎮 กด [SPACE] หรือเปิดโหมด [A] เพื่อเริ่มเป่ายิ้งฉุบ!", (px + 28, py + 12), font_size=20, color=(0, 240, 255))
+    def draw_wait_gesture(self, img, carry_move, waited_sec, lock_progress=0.0, repeat_progress=0.0):
+        """รอให้ผู้เล่นทำท่า — ยังไม่นับถอยหลังจนกว่าจะเห็นท่าชัด
+        carry_move = ท่าที่ค้างมาจากตาที่แล้ว (ถ้ามี): เปลี่ยนท่า = ออกทันที, ค้างไว้ = ออกท่าเดิมซ้ำ"""
+        x, y = self._center_box(img, 580, 140, ACCENT)
+        cx = x + 290
+        if carry_move:
+            self.text(img, "เปลี่ยนท่าได้เลย", (cx, y + 12), size=28, bold=True, color=WHITE, align="c")
+            self.text(img, f"หรือค้าง \"{carry_move}\" ไว้เพื่อออกท่าเดิมซ้ำ", (cx, y + 56), size=18,
+                      color=INK2, align="c")
+        else:
+            self.text(img, "ทำท่าให้กล้องเห็น", (cx, y + 12), size=28, bold=True, color=WHITE, align="c")
+            self.text(img, "ค้อน (กำมือ)  ·  กรรไกร (2 นิ้ว)  ·  กระดาษ (แบมือ)", (cx, y + 56), size=18,
+                      color=INK2, align="c")
+        self.text(img, f"จับเวลาตอบสนอง {waited_sec:.1f} วิ", (cx, y + 92), size=14, color=MUTED, align="c")
+        prog, col = (repeat_progress, AMBER) if repeat_progress > lock_progress else (lock_progress, GREEN)
+        if prog > 0:
+            bw = 420
+            bx = cx - bw // 2
+            cv2.rectangle(img, (bx, y + 122), (bx + bw, y + 127), (60, 64, 74), -1)
+            cv2.rectangle(img, (bx, y + 122), (bx + int(bw * min(1.0, prog)), y + 127), col, -1)
 
+    def draw_countdown(self, img, number, progress, locked_move=None, reaction_ms=None):
+        """ตัวเลขนับถอยหลังพร้อมวงแหวนความคืบหน้า"""
+        ih, iw = img.shape[:2]
+        cx, cy = iw // 2, ih // 2 - 40
+        r = 86
+        overlay = img.copy()
+        cv2.circle(overlay, (cx, cy), r + 16, PANEL, -1, cv2.LINE_AA)
+        cv2.addWeighted(overlay, 0.85, img, 0.15, 0, dst=img)
+        cv2.circle(img, (cx, cy), r, (60, 64, 74), 6, cv2.LINE_AA)
+        cv2.ellipse(img, (cx, cy), (r, r), -90, 0, int(360 * min(1.0, progress)), ACCENT, 6, cv2.LINE_AA)
+        if number == 0:
+            self.text(img, "ออก!", (cx, cy - 34), size=52, bold=True, color=GREEN, align="c")
+        else:
+            self.text(img, str(number), (cx, cy - 58), size=96, bold=True, color=WHITE, align="c")
+        if locked_move:
+            self.panel(img, cx - 240, cy + r + 26, 480, 64, alpha=0.88, border=None)
+            note = "(ล็อกแล้ว)" if number == 0 else "(เปลี่ยนได้จนกว่าจะนับจบ)"
+            self.text(img, f"ท่าของคุณ: {locked_move}   {note}", (cx, cy + r + 32),
+                      size=17, color=WHITE, align="c")
+            if reaction_ms is not None:
+                self.text(img, f"เวลาตอบสนอง {reaction_ms / 1000:.2f} วิ", (cx, cy + r + 60), size=14,
+                          color=INK2, align="c")
+
+    def draw_result_banner(self, img, result, player_move, boss_move, reaction_ms=None, auto_mode=False):
+        title, col = RESULT_STYLE.get(result, ("-", WHITE))
+        x, y = self._center_box(img, 560, 196, col)
+        cx = x + 280
+        self.text(img, title, (cx, y + 12), size=46, bold=True, color=col, align="c")
+        # คุณ vs บอส
+        self.text(img, "คุณ", (cx - 140, y + 82), size=15, color=MUTED, align="c")
+        self.text(img, player_move, (cx - 140, y + 100), size=30, bold=True,
+                  color=MOVE_COLOR.get(player_move, WHITE), align="c")
+        self.text(img, "VS", (cx, y + 104), size=22, bold=True, color=MUTED, align="c")
+        self.text(img, "บอส", (cx + 140, y + 82), size=15, color=MUTED, align="c")
+        self.text(img, boss_move, (cx + 140, y + 100), size=30, bold=True,
+                  color=MOVE_COLOR.get(boss_move, WHITE), align="c")
+        foot = "ตาถัดไปจะเริ่มเองเมื่อเห็นท่าใหม่" if auto_mode else "กด SPACE เล่นตาถัดไป"
+        if reaction_ms is not None:
+            foot = f"เวลาตอบสนอง {reaction_ms / 1000:.2f} วิ   ·   " + foot
+        self.text(img, foot, (cx, y + 160), size=15, color=INK2, align="c")
+
+    def draw_message(self, img, text, color=AMBER):
+        """ข้อความเตือนกลางจอแบบสั้น"""
+        x, y = self._center_box(img, 520, 70, color)
+        self.text(img, text, (x + 260, y + 18), size=22, bold=True, color=color, align="c")
+
+    # ------------------------------------------------------------------
+    #  แถบปุ่มด้านล่าง + คู่มือ + เมนูบอส + toast
+    # ------------------------------------------------------------------
     def draw_footer_controls(self, img):
-        """แถบปุ่มคีย์ลัดด้านล่างสุด"""
         w, h = img.shape[1], img.shape[0]
-        self.draw_panel(img, 10, h - 45, w - 20, 36, bg_color=(15, 18, 24), alpha=0.9, border_color=(50, 60, 75), border_thickness=1)
+        self.panel(img, 0, h - 46, w, 46, alpha=0.86, border=None)
+        cv2.line(img, (0, h - 46), (w, h - 46), PANEL_LINE, 1)
+        x = 20
+        for k, label in (("SPACE", "เล่น"), ("A", "ออโต้"), ("T", "ความเร็ว"), ("B", "เลือกบอส"),
+                         ("9", "Lite Ensemble"), ("H", "ปุ่มทั้งหมด"), ("Q", "ออก")):
+            x = self.keycap(img, k, label, x, h - 36)
 
-        help_text = "[SPACE] เริ่ม | [A] ออโต้ | [T] สปีด | [1-8] บอส | [S] เซฟ | [L] โหลด | [R] รีเซ็ต | [Q] ออก"
-        self.draw_thai_text(img, help_text, (20, h - 38), font_size=14, color=(190, 200, 215))
-
-    def draw_toast_notification(self, img, text, color=(0, 255, 120)):
-        """แบนเนอร์แจ้งเตือนชั่วคราว (Toast Message) กลางบนหน้าจอ"""
-        h, w, _ = img.shape
-        font = self.get_font(18)
-        bbox = font.getbbox(text)
-        tw = bbox[2] - bbox[0]
-        th = bbox[3] - bbox[1]
-        box_w = max(400, tw + 40)
-        box_h = th + 24
-        bx = (w - box_w) // 2
-        by = 86
-        self.draw_panel(img, bx, by, box_w, box_h, bg_color=(15, 20, 28), alpha=0.92, border_color=color, border_thickness=2)
-        self.draw_thai_text(img, text, (bx + 20, by + 10), font_size=18, color=color, shadow=True)
+    def draw_help_overlay(self, img):
+        ih, iw = img.shape[:2]
+        mw, mh = 640, 470
+        mx, my = (iw - mw) // 2, (ih - mh) // 2
+        self.panel(img, mx, my, mw, mh, alpha=0.95, border=ACCENT, thickness=2)
+        self.text(img, "ปุ่มทั้งหมด", (mx + 28, my + 18), size=26, bold=True, color=ACCENT)
+        rows = [
+            ("SPACE", "เริ่มตาใหม่ (แล้วทำท่าให้กล้องเห็น)"),
+            ("A", "โหมดออโต้: เริ่มตาใหม่เองเมื่อเห็นท่า"),
+            ("T", "ความเร็วนับถอยหลัง 3 / 2 / 1.5 / 1 วิ"),
+            ("B", "เปิดรายชื่อบอส  ·  1-8 เปลี่ยนบอส"),
+            ("9", "Lite Ensemble (กดซ้ำ: 2 / 3 / 4 โมเดล / Warm start)"),
+            ("S / L", "บันทึก / โหลดสมองบอส"),
+            ("R", "รีเซ็ตคะแนนและความจำบอส"),
+            ("M", "เปิด/ปิดเสียง"),
+            ("G", "แสดง/ซ่อนเส้นโครงมือ"),
+            ("Q / ESC", "ออกจากเกม"),
+        ]
+        y = my + 72
+        for k, label in rows:
+            self.keycap(img, k, label, mx + 32, y, size=16)
+            y += 37
+        self.text(img, "กด H อีกครั้งเพื่อปิด", (mx + mw // 2, my + mh - 34), size=14, color=MUTED, align="c")
 
     def draw_boss_selection_menu(self, img, bosses, current_idx):
-        """หน้าต่างเลือกบอสเมื่อผู้เล่นกดเปลี่ยนบอส"""
-        h, w, _ = img.shape
-        mw = 660
-        mh = 480
-        mx = (w - mw) // 2
-        my = (h - mh) // 2
+        ih, iw = img.shape[:2]
+        mw, mh = 700, 112 + 46 * len(bosses)
+        mx, my = (iw - mw) // 2, max(70, (ih - mh) // 2)
+        self.panel(img, mx, my, mw, mh, alpha=0.95, border=ACCENT, thickness=2)
+        self.text(img, "เลือกบอส", (mx + 28, my + 16), size=26, bold=True, color=ACCENT)
+        self.text(img, "กดตัวเลขเพื่อเลือก  ·  B ปิด", (mx + mw - 28, my + 24), size=15, color=MUTED, align="r")
+        y = my + 66
+        for i, b in enumerate(bosses):
+            active = i == current_idx
+            if active:
+                self.panel(img, mx + 16, y - 4, mw - 32, 44, bg=(50, 44, 30), alpha=0.9, border=ACCENT)
+            name = getattr(b, "name", f"บอส {i + 1}")
+            desc = getattr(b, "desc", "")
+            self.keycap(img, str(i + 1), "", mx + 26, y + 4, size=15)
+            self.text(img, self.fit(short_boss_name(name), 18, mw - 100, True), (mx + 70, y), size=18,
+                      bold=True, color=ACCENT if active else WHITE)
+            self.text(img, self.fit(desc, 13, mw - 100), (mx + 70, y + 22), size=13, color=MUTED)
+            y += 46
 
-        self.draw_panel(img, mx, my, mw, mh, bg_color=(12, 15, 22), alpha=0.96, border_color=(0, 220, 255), border_thickness=2)
-        self.draw_thai_text(img, "🧠 เลือกโมเดลสมองบอส AI (กด 1 - 8 หรือ [L] โหลดโมเดล)", (mx + 25, my + 18), font_size=22, color=(0, 240, 255))
-
-        y_offset = my + 60
-        for i, b_cls in enumerate(bosses):
-            is_active = (i == current_idx)
-            text_color = (0, 255, 128) if is_active else (220, 220, 220)
-            prefix = "▶ " if is_active else "  "
-
-            b_name = getattr(b_cls, "name", f"บอสตัวที่ {i+1}")
-            b_desc = getattr(b_cls, "desc", "")
-            self.draw_thai_text(img, f"{prefix}{b_name}", (mx + 25, y_offset), font_size=17, color=text_color)
-            self.draw_thai_text(img, f"     {b_desc[:46]}", (mx + 25, y_offset + 22), font_size=12, color=(160, 170, 180))
-            y_offset += 44
-
-        self.draw_thai_text(img, "กดหมายเลข [1 - 8] เพื่อเลือกบอส | [L] โหลดโมเดลจากไฟล์ | [SPACE] กลับ", (mx + 30, my + mh - 30), font_size=14, color=(255, 200, 80))
+    def draw_toast_notification(self, img, text, color=GREEN):
+        ih, iw = img.shape[:2]
+        text = self.fit(text, 17, 540)
+        tw = self.text_width(text, 17) + 40
+        bx, by = (iw - tw) // 2, ih - 46 - 58
+        self.panel(img, bx, by, tw, 40, alpha=0.92, border=color, thickness=2)
+        self.text(img, text, (iw // 2, by + 8), size=17, color=color, align="c")

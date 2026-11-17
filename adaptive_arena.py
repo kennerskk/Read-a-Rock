@@ -439,6 +439,217 @@ class MLPredictorBoss(Boss):
             self.wsls_transitions[k] = Counter(v)
 
 
+# ---------- Combo Ensemble: เลือกได้ว่าจะใช้ผู้เชี่ยวชาญกี่ตัว / ตัวไหน ----------
+# คลังผู้เชี่ยวชาญที่นำมาจับคู่ได้ (key สั้น -> (ชื่อแสดงผล, คลาส))
+EXPERT_POOL = {
+    "freq":   ("Frequency",  FrequencyBoss),
+    "decay":  ("Decay",      DecayBoss),
+    "markov": ("Markov",     MarkovBoss),
+    "ngram":  ("N-gram",     NgramBoss),
+    "qlearn": ("Q-learning", QLearningBoss),
+    "ml":     ("ML",         MLPredictorBoss),
+}
+
+# แชมป์แต่ละขนาดจาก benchmark_ensemble_combos.py (ดู reports/ensemble_combos.md)
+# 50 reps x 7 คู่ต่อสู้ — Net Score: 2 ตัว 47.7 | 3 ตัว 48.0 | 4 ตัว 47.7 | Ensemble เดิม 41.2
+BEST_COMBOS = {
+    2: ("ngram", "ml"),
+    3: ("ngram", "qlearn", "ml"),
+    4: ("freq", "ngram", "qlearn", "ml"),
+}
+BEST_COMBO = BEST_COMBOS[2]     # ค่าเริ่มต้นของบอส 9: เล็กสุดแต่โหดพอ ๆ กับชุดใหญ่
+
+
+# ---------- Population Prior: นิสัยรวมของผู้เล่น "ทุกคน" (ใช้แก้ปัญหาเริ่มเกมแล้วยังไม่รู้จักคนตรงหน้า) ----------
+DEFAULT_TELEMETRY = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "gameplay_telemetry.csv")
+SYNTHETIC_PLAYERS = {"guest"}     # ข้อมูลจำลองจาก simulator ไม่ใช่คนจริง ไม่นำมาเทรน
+
+
+def _res_from_reward(reward: int) -> str:
+    """reward มุมมองบอส -> ผลมุมมองผู้เล่น"""
+    return {-1: "win", 0: "draw", 1: "lose"}.get(reward, "draw")
+
+
+def build_population_table(source=None, exclude_players=(), session_gap_min: float = 10.0) -> Dict[str, Any]:
+    """
+    สร้างตารางนับท่าจากข้อมูลผู้เล่นจริงทุกคน (ยกเว้น exclude_players และข้อมูลจำลอง)
+      first : ท่าแรกของแต่ละ session
+      marg  : ความถี่ท่าทั้งหมด
+      m1    : ท่าถัดไป | ท่าที่แล้ว
+      m1r   : ท่าถัดไป | ท่าที่แล้ว + ผลตาที่แล้ว (จับนิสัย ชนะซ้ำ/แพ้เปลี่ยน)
+    นับเฉพาะลำดับภายใน session เดียวกัน (เริ่ม session ใหม่เมื่อ round_id รีเซ็ตหรือห่างกัน > 10 นาที)
+    """
+    import pandas as pd
+    if source is None:
+        source = DEFAULT_TELEMETRY
+    empty = {"first": {}, "marg": {}, "m1": {}, "m1r": {}, "players": [], "rounds": 0}
+    if isinstance(source, str):
+        if not os.path.exists(source):
+            return empty
+        df = pd.read_csv(source)
+    else:
+        df = source.copy()
+    if df.empty or "player_move" not in df:
+        return empty
+    df["pkey"] = df.get("player_name", "guest").astype(str).str.strip().str.lower()
+    excl = {p.strip().lower() for p in exclude_players} | SYNTHETIC_PLAYERS
+    df = df[~df["pkey"].isin(excl) & df["player_move"].isin(MOVES)].copy()
+    df["ts"] = pd.to_datetime(df["timestamp"], errors="coerce")
+    first, marg = Counter(), Counter()
+    m1, m1r = defaultdict(Counter), defaultdict(Counter)
+    for _, g in df.sort_values("ts", kind="stable").groupby("pkey"):
+        new_sess = (g["round_id"].diff() <= 0) | (g["ts"].diff() > pd.Timedelta(minutes=session_gap_min))
+        prev = None
+        for mv, res, is_new in zip(g["player_move"], g["result"], new_sess):
+            marg[mv] += 1
+            if is_new or prev is None:
+                first[mv] += 1
+            else:
+                m1[prev[0]][mv] += 1
+                m1r[f"{prev[0]}|{prev[1]}"][mv] += 1
+            prev = (mv, res)
+    return {"first": dict(first), "marg": dict(marg),
+            "m1": {k: dict(v) for k, v in m1.items()}, "m1r": {k: dict(v) for k, v in m1r.items()},
+            "players": sorted(df["pkey"].unique().tolist()), "rounds": int(len(df))}
+
+
+class PopulationPriorBoss(Boss):
+    """
+    ผู้เชี่ยวชาญที่ "รู้จักคนทั่วไป" ตั้งแต่ตาแรก จากข้อมูลผู้เล่นจริงทุกคนรวมกัน
+    ทายการกระจายท่าถัดไปจาก (ท่าที่แล้ว, ผลตาที่แล้ว) -> backoff เป็น (ท่าที่แล้ว) -> ความถี่รวม
+    แล้วเลือกท่าที่ได้ผลตอบแทนคาดหวังสูงสุด (best response) ไม่ได้เรียนรู้ระหว่างเกม
+    ให้สมาชิกตัวอื่นใน Ensemble เป็นฝ่ายปรับตัวเข้าหาคนตรงหน้า
+    """
+    name = "Population Prior (นิสัยรวมของผู้เล่นทุกคน)"
+    desc = "รู้จักนิสัยคนทั่วไปตั้งแต่ตาแรก จากข้อมูลผู้เล่นจริงทุกคน"
+    MIN_SUPPORT = 8      # ต้องมีตัวอย่างอย่างน้อยเท่านี้ถึงจะเชื่อตารางที่ละเอียดกว่า
+
+    def __init__(self, table: Optional[Dict[str, Any]] = None, csv_path: Optional[str] = None,
+                 exclude_players=()):
+        self.table = table if table is not None else build_population_table(csv_path, exclude_players)
+        self.results: List[str] = []
+
+    def _dist(self, opp_history: List[str]) -> Dict[str, float]:
+        t = self.table
+        cands = []
+        if opp_history:
+            last = opp_history[-1]
+            if self.results:
+                cands.append(t.get("m1r", {}).get(f"{last}|{self.results[-1]}", {}))
+            cands.append(t.get("m1", {}).get(last, {}))
+        else:
+            cands.append(t.get("first", {}))
+        cands.append(t.get("marg", {}))
+        for c in cands:
+            n = sum(c.values())
+            if n >= self.MIN_SUPPORT:
+                return {m: (c.get(m, 0) + 1) / (n + 3) for m in MOVES}
+        return {m: 1 / 3 for m in MOVES}
+
+    def choose(self, opp_history: List[str]) -> str:
+        p = self._dist(opp_history)
+        # ผลตอบแทนคาดหวังของบอสเมื่อออกท่า b = P(ผู้เล่นออกท่าที่ b ชนะ) - P(ผู้เล่นออกท่าที่ชนะ b)
+        ev = {b: p[BEATS[b]] - p[COUNTER[b]] for b in MOVES}
+        best = max(ev.values())
+        return random.choice([b for b in MOVES if ev[b] >= best - 1e-9])
+
+    def learn(self, reward: int, opp_history: List[str]):
+        self.results.append(_res_from_reward(reward))
+
+    def get_state(self) -> Dict[str, Any]:
+        return {"table": self.table}
+
+    def load_state(self, state: Dict[str, Any]):
+        if state.get("table"):
+            self.table = state["table"]
+
+
+# ผู้เชี่ยวชาญเพิ่มเติมที่ไม่อยู่ใน EXPERT_POOL (ไม่เอาเข้า benchmark จับคู่ เพราะเทรนจากคนชุดเดียวกับที่ใช้ทดสอบ = รั่ว)
+EXTRA_EXPERTS = {"prior": ("Population", PopulationPriorBoss)}
+ALL_EXPERTS = {**EXPERT_POOL, **EXTRA_EXPERTS}
+
+# Lite Ensemble แบบ warm start: รู้จักคนทั่วไปตั้งแต่ตาแรก แล้วค่อยเปลี่ยนไปเชื่อโมเดลที่เรียนจากคนตรงหน้า
+# ผลทดสอบ leave-one-player-out (reports/warm_start.md, ผู้เล่นจริง 2 คน): ยังไม่ต่างจาก Cold อย่างมีนัยสำคัญ
+# จึงเป็นแค่ตัวเลือกเสริมของบอส 9 (กด 9 วนถึง "warm") ค่าเริ่มต้นยังเป็น BEST_COMBO
+WARM_COMBO = ("prior", "ngram", "ml")
+WARM_DECAY = 0.9
+
+
+class ComboEnsembleBoss(Boss):
+    """
+    Ensemble แบบเลือกสมาชิกได้ (2, 3, 4, ... ตัว)
+    - ทุกตาให้สมาชิกทุกตัวเสนอท่า (เรียก choose ครั้งเดียวต่อตัว)
+    - ให้คะแนนสมาชิกที่ "ท่าที่เสนอตาที่แล้ว" ชนะท่าจริงของผู้เล่น
+    - เชื่อสมาชิกที่คะแนนสะสมสูงสุด (เสมอกันเลือกตามลำดับใน members)
+    - Q-learning เรียนจากรางวัลของ "ท่าที่ตัวเองเสนอ" (counterfactual)
+      ส่วนตัวอื่นเรียนจากผลจริง เพื่อให้ฟีเจอร์ WSLS ของ ML ถูกต้อง
+    """
+    name = "9. Lite Ensemble (ชุด 2-4 โมเดลที่ทดสอบแล้วโหดสุด)"
+    desc = "ใช้แค่ 2-4 โมเดลที่ดีที่สุดจาก benchmark ประหยัดกว่า Ensemble เต็ม (กด 9 ซ้ำเพื่อสลับขนาด)"
+
+    def __init__(self, members=None, decay: float = 1.0, factories: Optional[Dict[str, Any]] = None):
+        """
+        members  : key ของสมาชิก เช่น ("ngram", "ml") หรือ ("prior", "ngram", "ml")
+        decay    : 1.0 = คะแนนสะสมตลอดเกม (เหมือน Ensemble เดิม), < 1 = ลืมคะแนนเก่า
+                   (ช่วยให้เลิกเชื่อ Population Prior ได้เร็วเมื่อโมเดลที่เรียนจากคนตรงหน้าแม่นกว่า)
+        factories: ใช้แทนตัวสร้างสมาชิก (เช่นส่ง Population Prior ที่เทรนแบบเว้นผู้เล่นทดสอบไว้)
+        """
+        members = tuple(members) if members else BEST_COMBO
+        unknown = [m for m in members if m not in ALL_EXPERTS]
+        if unknown or len(members) < 1:
+            raise ValueError(f"สมาชิกไม่ถูกต้อง: {unknown} (เลือกได้จาก {list(ALL_EXPERTS)})")
+        factories = factories or {}
+        self.members = members
+        self.decay = float(decay)
+        self.experts = {m: (factories[m]() if m in factories else ALL_EXPERTS[m][1]()) for m in members}
+        self.scores = {m: 0.0 for m in members}
+        self.proposals: Dict[str, str] = {}
+        self.picks = Counter()          # นับว่าแต่ละตาเชื่อสมาชิกตัวไหน (ใช้อธิบายผลใน benchmark)
+        label = " + ".join(ALL_EXPERTS[m][0] for m in members)
+        self.name = f"9. Lite Ensemble ({label})"
+        warm = " เริ่มด้วยนิสัยคนทั่วไป แล้วปรับเข้าหาคุณ" if "prior" in members else ""
+        self.desc = f"ใช้แค่ {len(members)} โมเดล ({label}){warm}"
+
+    def choose(self, opp_history: List[str]) -> str:
+        self.proposals = {m: e.choose(opp_history) for m, e in self.experts.items()}
+        best = max(self.members, key=lambda m: self.scores[m])
+        self.picks[best] += 1
+        return self.proposals[best]
+
+    def learn(self, reward: int, opp_history: List[str]):
+        if not opp_history:
+            return
+        actual = opp_history[-1]
+        for m, e in self.experts.items():
+            proposed = self.proposals.get(m)
+            self.scores[m] *= self.decay
+            if proposed is not None and COUNTER[actual] == proposed:
+                self.scores[m] += 1
+            if isinstance(e, QLearningBoss) and proposed is not None:
+                own = judge(actual, proposed)               # มุมมองผู้เล่น
+                e.learn({"win": -1, "draw": 0, "lose": 1}[own], opp_history)
+            else:
+                e.learn(reward, opp_history)
+
+    def get_state(self) -> Dict[str, Any]:
+        return {
+            "members": list(self.members),
+            "decay": self.decay,
+            "scores": dict(self.scores),
+            "experts": {m: e.get_state() for m, e in self.experts.items()},
+        }
+
+    def load_state(self, state: Dict[str, Any]):
+        members = tuple(state.get("members", self.members))
+        decay = float(state.get("decay", self.decay))
+        if members != self.members or decay != self.decay:
+            self.__init__(members, decay)
+        self.scores.update({k: v for k, v in state.get("scores", {}).items() if k in self.scores})
+        for m, st in state.get("experts", {}).items():
+            if m in self.experts:
+                self.experts[m].load_state(st)
+
+
 # ---------- Custom Loaded Boss Wrapper ----------
 class CustomSavedBoss(Boss):
     name = "[Custom Boss] โมเดลที่โหลดจากไฟล์"
@@ -493,6 +704,10 @@ BOSSES = [
     QLearningBoss,
     MLPredictorBoss
 ]
+
+# รายการบอสในเกม (เพิ่มบอส 9 = Lite Ensemble ชุดที่ดีที่สุดจาก benchmark)
+# แยกจาก BOSSES เพื่อให้สคริปต์วิเคราะห์เดิม (statistical_test ฯลฯ) ได้ผลเหมือนเดิม
+GAME_BOSSES = BOSSES + [ComboEnsembleBoss]
 
 
 # =====================================================
